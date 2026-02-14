@@ -12,7 +12,7 @@ set -e
 
 # Configuration
 MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
-NODE_COUNTS=(2 4)  # worker processes on this machine (4 GPUs available)
+NODE_COUNTS=(2 4)  # worker processes on this machine (up to 4 GPUs)
 DENSITY="1.0"  # dense data
 BLOCK_SIZE=256
 BACKEND="gloo"
@@ -55,15 +55,17 @@ run_benchmark_local() {
     echo "Running: workers=$num_workers, msgsize=$((msg_size/1024/1024))MiB, density=$DENSITY"
     
     # Run mpirun-based benchmark
-    # Note: requires aggregator running elsewhere or compiled with --enable-shared-memory
+    # mpirun sets OMPI_COMM_WORLD_RANK and OMPI_COMM_WORLD_SIZE automatically
     cd "$BENCHMARK_DIR"
     
-    mpirun -n "$num_workers" python benchmark.py \
-        --backend "$BACKEND" \
-        --tensor-size "$msg_size" \
-        --block-size "$BLOCK_SIZE" \
-        --density "$DENSITY" \
-        --ip 127.0.0.1 \
+    mpirun -n "$num_workers" bash -c 'python benchmark.py \
+        --backend '"$BACKEND"' \
+        --tensor-size '"$msg_size"' \
+        --block-size '"$BLOCK_SIZE"' \
+        --density '"$DENSITY"' \
+        --rank $OMPI_COMM_WORLD_RANK \
+        --size $OMPI_COMM_WORLD_SIZE \
+        --ip 127.0.0.1' \
         2>&1 | tee "$result_dir/benchmark_${num_workers}w_${msg_size}b.log"
     
     echo "  ✓ Completed"
