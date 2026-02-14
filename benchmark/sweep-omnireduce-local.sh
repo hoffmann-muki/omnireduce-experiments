@@ -12,7 +12,7 @@ set -e
 
 # Configuration
 MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
-NODE_COUNTS=(2 4 8)  # worker processes on this machine
+NODE_COUNTS=(2 4)  # worker processes on this machine (4 GPUs available)
 DENSITY="1.0"  # dense data
 BLOCK_SIZE=256
 BACKEND="gloo"
