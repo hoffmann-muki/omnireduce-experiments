@@ -63,6 +63,26 @@ read_config() {
     export AGGREGATOR_IPS="${aggregator_arr[*]}"
 }
 
+# Deploy omnireduce.cfg to nodes
+deploy_config() {
+    local wnum=$1
+    local anum=$2
+    local worker_ips=($WORKER_IPS)
+    local aggregator_ips=($AGGREGATOR_IPS)
+    
+    echo "Deploying omnireduce.cfg to aggregator and worker nodes..."
+    for ((i=0; i<anum; i++)); do
+        local agg_host="${aggregator_ips[$i]}"
+        ssh -p 2222 "$agg_host" "mkdir -p /usr/local/omnireduce/example" 2>/dev/null || true
+        scp -P 2222 omnireduce.cfg "$agg_host":/usr/local/omnireduce/example/ 2>/dev/null || true
+    done
+    for ((i=0; i<wnum; i++)); do
+        local worker_host="${worker_ips[$i]}"
+        ssh -p 2222 "$worker_host" "mkdir -p /home/exps/benchmark" 2>/dev/null || true
+        scp -P 2222 omnireduce.cfg "$worker_host":/home/exps/benchmark/ 2>/dev/null || true
+    done
+}
+
 # Start aggregators on specified count
 start_aggregators() {
     local anum=$1
@@ -172,10 +192,32 @@ main() {
         echo "WARNING: CUDA_VISIBLE_DEVICES not set, defaulting to 0"
         export CUDA_VISIBLE_DEVICES=0
     fi
+    
+    # Auto-detect network interface
     if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
-        echo "WARNING: GLOO_SOCKET_IFNAME not set, defaulting to eth0"
-        export GLOO_SOCKET_IFNAME=eth0
+        GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
+        if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+            for iface in eth0 eno1 en0 hsn0 wlan0; do
+                if ip addr show "$iface" &>/dev/null; then
+                    GLOO_SOCKET_IFNAME=$iface
+                    break
+                fi
+            done
+        fi
+        if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+            GLOO_SOCKET_IFNAME=lo
+        fi
+        export GLOO_SOCKET_IFNAME
+        echo "Auto-detected GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME"
     fi
+    
+    # Warn about LD_LIBRARY_PATH
+    if [[ -z "$LD_LIBRARY_PATH" ]]; then
+        echo "WARNING: LD_LIBRARY_PATH not set. Make sure omnireduce/build is in LD_LIBRARY_PATH on worker nodes"
+    fi
+    
+    # Deploy config files to nodes
+    deploy_config "$MAX_WORKERS" "$MAX_AGGREGATORS"
     
     # Create root results directory
     local results_root="./100G-results/sweep-$(date +%Y%m%d-%H%M%S)"
