@@ -38,9 +38,24 @@ check_env() {
         echo "Set CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
     fi
     
+    
     if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
-        export GLOO_SOCKET_IFNAME=eth0
-        echo "Set GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME (adjust if needed)"
+        # Auto-detect a network interface with an IP address
+        GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
+        if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+            # Fallback: try common interface names
+            for iface in eth0 eno1 en0 wlan0; do
+                if ip addr show "$iface" &>/dev/null; then
+                    GLOO_SOCKET_IFNAME=$iface
+                    break
+                fi
+            done
+        fi
+        if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+            GLOO_SOCKET_IFNAME=lo  # Last resort: localhost
+        fi
+        export GLOO_SOCKET_IFNAME
+        echo "Set GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME"
     fi
 }
 
