@@ -16,13 +16,31 @@ set -e
 
 # Configuration
 MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
-NODE_COUNTS=(2 4 8 16 32)
+NODE_COUNTS=()  # will be auto-detected from SLURM allocation
 DENSITY="1.0"  # dense data (no sparsity)
 BLOCK_SIZE=256
 BACKEND="gloo"
 WARMUP_ITERATIONS=10
 MEASURE_ITERATIONS=100
 MODE="RDMA"
+
+# Auto-detect node count from SLURM allocation
+detect_node_count() {
+    if [[ -z "$SLURM_NODELIST" ]]; then
+        echo "ERROR: SLURM_NODELIST not set. Please run within a SLURM allocation (salloc/sbatch)"
+        exit 1
+    fi
+    
+    # Count nodes in allocation
+    local num_nodes=$(scontrol show hostnames "$SLURM_NODELIST" | wc -l)
+    if [[ $num_nodes -lt 1 ]]; then
+        echo "ERROR: Could not determine node count from SLURM_NODELIST=$SLURM_NODELIST"
+        exit 1
+    fi
+    
+    echo "Detected $num_nodes nodes in allocation"
+    NODE_COUNTS=($num_nodes)
+}
 
 # Parse omnireduce.cfg
 read_config() {
@@ -176,8 +194,11 @@ main() {
     echo "OmniReduce Benchmark Sweep"
     echo "============================"
     echo "Message sizes: ${MESSAGE_SIZES[@]} bytes"
-    echo "Node counts: ${NODE_COUNTS[@]}"
-    echo "Density: $DENSITY"
+    echo ""
+    
+    # Detect available nodes from SLURM
+    detect_node_count
+    echo "Node counts to test: ${NODE_COUNTS[@]}"
     echo ""
     
     # Read config
