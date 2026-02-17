@@ -23,20 +23,49 @@ BACKEND="gloo"
 WARMUP_ITERATIONS=10
 MEASURE_ITERATIONS=100
 MODE="RDMA"
+SSH_PORT=${SSH_PORT:-22}
 
-# Auto-detect node count from SLURM allocation
+# Auto-detect node count and populate omnireduce.cfg from SLURM allocation
 detect_node_count() {
     if [[ -z "$SLURM_NODELIST" ]]; then
         echo "ERROR: SLURM_NODELIST not set. Please run within a SLURM allocation (salloc/sbatch)"
         exit 1
     fi
     
-    # Count nodes in allocation
-    local num_nodes=$(scontrol show hostnames "$SLURM_NODELIST" | wc -l)
+    # Get hostnames from allocation
+    local hosts=$(scontrol show hostnames "$SLURM_NODELIST")
+    local num_nodes=$(echo "$hosts" | wc -l)
     if [[ $num_nodes -lt 1 ]]; then
         echo "ERROR: Could not determine node count from SLURM_NODELIST=$SLURM_NODELIST"
         exit 1
     fi
+    
+    # Auto-update omnireduce.cfg with SLURM allocation info
+    local hosts_csv=$(echo "$hosts" | paste -sd, -)
+    local first_host=$(echo "$hosts" | head -n1)
+    
+    echo "Auto-configuring omnireduce.cfg from SLURM allocation:"
+    echo "  Detected nodes: $hosts_csv"
+    echo "  Aggregator: $first_host"
+    
+    # Update omnireduce.cfg in place (create if missing)
+    if [[ ! -f omnireduce.cfg ]]; then
+        echo "[omnireduce]" > omnireduce.cfg
+    fi
+    
+    # Update worker and aggregator IPs, counts
+    sed -i.bak 's/^worker_ips.*/worker_ips = '"$hosts_csv"'/' omnireduce.cfg
+    sed -i.bak 's/^aggregator_ips.*/aggregator_ips = '"$first_host"'/' omnireduce.cfg
+    sed -i.bak 's/^num_workers.*/num_workers = '"$num_nodes"'/' omnireduce.cfg
+    sed -i.bak 's/^num_aggregators.*/num_aggregators = 1/' omnireduce.cfg
+    
+    # If keys didn't exist, append them
+    grep -q "^worker_ips" omnireduce.cfg || echo "worker_ips = $hosts_csv" >> omnireduce.cfg
+    grep -q "^aggregator_ips" omnireduce.cfg || echo "aggregator_ips = $first_host" >> omnireduce.cfg
+    grep -q "^num_workers" omnireduce.cfg || echo "num_workers = $num_nodes" >> omnireduce.cfg
+    grep -q "^num_aggregators" omnireduce.cfg || echo "num_aggregators = 1" >> omnireduce.cfg
+    
+    rm -f omnireduce.cfg.bak
     
     echo "Detected $num_nodes nodes in allocation"
     NODE_COUNTS=($num_nodes)
@@ -91,13 +120,13 @@ deploy_config() {
     echo "Deploying omnireduce.cfg to aggregator and worker nodes..."
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
-        ssh -p 2222 "$agg_host" "mkdir -p /usr/local/omnireduce/example" 2>/dev/null || true
-        scp -P 2222 omnireduce.cfg "$agg_host":/usr/local/omnireduce/example/ 2>/dev/null || true
+        ssh -p $SSH_PORT "$agg_host" "mkdir -p /usr/local/omnireduce/example" 2>/dev/null || true
+        scp -P $SSH_PORT omnireduce.cfg "$agg_host":/usr/local/omnireduce/example/ 2>/dev/null || true
     done
     for ((i=0; i<wnum; i++)); do
         local worker_host="${worker_ips[$i]}"
-        ssh -p 2222 "$worker_host" "mkdir -p /home/exps/benchmark" 2>/dev/null || true
-        scp -P 2222 omnireduce.cfg "$worker_host":/home/exps/benchmark/ 2>/dev/null || true
+        ssh -p $SSH_PORT "$worker_host" "mkdir -p /home/exps/benchmark" 2>/dev/null || true
+        scp -P $SSH_PORT omnireduce.cfg "$worker_host":/home/exps/benchmark/ 2>/dev/null || true
     done
 }
 
@@ -110,7 +139,7 @@ start_aggregators() {
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
-        ssh -p 2222 "$agg_host" "pkill -9 aggregator; cd /usr/local/omnireduce/example; nohup ./aggregator > aggregator_${i}.log 2>&1 &" &
+        ssh -p $SSH_PORT "$agg_host" "pkill -9 aggregator; cd /usr/local/omnireduce/example; nohup ./aggregator > aggregator_${i}.log 2>&1 &" &
     done
     wait
     sleep 2  # give aggregators time to initialize
@@ -144,13 +173,13 @@ run_benchmark() {
     echo "Running benchmark: nodes=$wnum, msg_size=$((msg_size/1024/1024))MiB, density=$DENSITY"
     
     # Start aggregators
-    start_aggregators "$wnum"
+    start_aggregators "$MAX_AGGREGATORS"
     
     # Start workers
     for ((i=0; i<wnum; i++)); do
         local worker_host="${worker_ips[$i]}"
         echo "  Starting worker $i on $worker_host"
-        ssh -p 2222 "$worker_host" \
+        ssh -p $SSH_PORT "$worker_host" \
             "cd /home/exps/benchmark && \
              export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} && \
              export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-eth0} && \
@@ -170,7 +199,7 @@ run_benchmark() {
     wait
     
     # Stop aggregators
-    stop_aggregators "$wnum"
+    stop_aggregators "$MAX_AGGREGATORS"
     
     # Aggregate results (simple: grab latencies from logs)
     echo "  Collecting results..."
