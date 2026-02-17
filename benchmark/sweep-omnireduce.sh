@@ -101,29 +101,38 @@ detect_node_count() {
     
     # Auto-update omnireduce.cfg with SLURM allocation info
     local hosts_csv=$(echo "$hosts" | paste -sd, -)
-    local first_host=$(echo "$hosts" | head -n1)
-    
+
+    # Build an array of hosts
+    read -r -a hosts_arr <<< "$(echo "$hosts")"
+
+    # Decide number of aggregators using the log2 heuristic
+    local num_aggs=$(calc_aggregators "$num_nodes")
+
+    # Choose first `num_aggs` hosts as aggregators (can be changed to a different placement heuristic)
+    local aggregator_arr=()
+    for ((i=0; i<num_aggs; i++)); do
+        aggregator_arr+=("${hosts_arr[$i]}")
+    done
+    local aggregator_csv=$(IFS=,; echo "${aggregator_arr[*]}")
+
     echo "Auto-configuring omnireduce.cfg from SLURM allocation:"
     echo "  Detected nodes: $hosts_csv"
-    echo "  Aggregator: $first_host"
-    
+    echo "  Aggregators: $aggregator_csv"
+
     # Update omnireduce.cfg in place (create if missing)
     if [[ ! -f omnireduce.cfg ]]; then
         echo "[omnireduce]" > omnireduce.cfg
     fi
-    
-    # Calculate aggregators using log2 heuristic
-    local num_aggs=$(calc_aggregators "$num_nodes")
-    
+
     # Update worker and aggregator IPs, counts
     sed -i.bak 's/^worker_ips.*/worker_ips = '"$hosts_csv"'/' omnireduce.cfg
-    sed -i.bak 's/^aggregator_ips.*/aggregator_ips = '"$first_host"'/' omnireduce.cfg
+    sed -i.bak 's/^aggregator_ips.*/aggregator_ips = '"$aggregator_csv"'/' omnireduce.cfg
     sed -i.bak 's/^num_workers.*/num_workers = '"$num_nodes"'/' omnireduce.cfg
     sed -i.bak 's/^num_aggregators.*/num_aggregators = '"$num_aggs"'/' omnireduce.cfg
-    
+
     # If keys didn't exist, append them
     grep -q "^worker_ips" omnireduce.cfg || echo "worker_ips = $hosts_csv" >> omnireduce.cfg
-    grep -q "^aggregator_ips" omnireduce.cfg || echo "aggregator_ips = $first_host" >> omnireduce.cfg
+    grep -q "^aggregator_ips" omnireduce.cfg || echo "aggregator_ips = $aggregator_csv" >> omnireduce.cfg
     grep -q "^num_workers" omnireduce.cfg || echo "num_workers = $num_nodes" >> omnireduce.cfg
     grep -q "^num_aggregators" omnireduce.cfg || echo "num_aggregators = $num_aggs" >> omnireduce.cfg
     
