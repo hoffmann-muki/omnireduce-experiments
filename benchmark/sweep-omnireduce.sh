@@ -102,8 +102,8 @@ detect_node_count() {
     # Auto-update omnireduce.cfg with SLURM allocation info
     local hosts_csv=$(echo "$hosts" | paste -sd, -)
 
-    # Build an array of hosts
-    read -r -a hosts_arr <<< "$(echo "$hosts")"
+    # Build an array of hosts (readarray reads all lines correctly)
+    readarray -t hosts_arr <<< "$hosts"
 
     # Decide number of aggregators using the log2 heuristic
     local num_aggs=$(calc_aggregators "$num_nodes")
