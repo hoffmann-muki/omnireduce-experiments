@@ -7,9 +7,9 @@
 #   ./sweep-omnireduce.sh
 #
 # Prerequisites:
-#   - omnireduce.cfg in current directory (configure worker/aggregator IPs first)
-#   - CUDA_VISIBLE_DEVICES and GLOO_SOCKET_IFNAME env vars set
-#   - aggregator and worker binaries built and accessible via SSH
+#   - Running within a SLURM allocation (salloc or sbatch)
+#   - LD_LIBRARY_PATH includes omnireduce/build directory
+#   - CUDA_VISIBLE_DEVICES set (optional; defaults to 0)
 #
 
 set -e
@@ -20,10 +20,11 @@ NODE_COUNTS=()  # will be auto-detected from SLURM allocation
 DENSITY="1.0"  # dense data (no sparsity)
 BLOCK_SIZE=256
 BACKEND="gloo"
-WARMUP_ITERATIONS=10
-MEASURE_ITERATIONS=100
-MODE="RDMA"
-SSH_PORT=${SSH_PORT:-22}
+
+# Path configuration (adjust if your install is in a different location)
+OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce/build}
+OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/example/aggregator}
+BENCHMARK_SCRIPT=${BENCHMARK_SCRIPT:-$(pwd)/benchmark.py}
 
 # Auto-detect node count and populate omnireduce.cfg from SLURM allocation
 detect_node_count() {
@@ -110,36 +111,24 @@ read_config() {
     export AGGREGATOR_IPS="${aggregator_arr[*]}"
 }
 
-# Deploy omnireduce.cfg to nodes
-deploy_config() {
-    local wnum=$1
-    local anum=$2
-    local worker_ips=($WORKER_IPS)
-    local aggregator_ips=($AGGREGATOR_IPS)
-    
-    echo "Deploying omnireduce.cfg to aggregator and worker nodes..."
-    for ((i=0; i<anum; i++)); do
-        local agg_host="${aggregator_ips[$i]}"
-        ssh -p $SSH_PORT "$agg_host" "mkdir -p /usr/local/omnireduce/example" 2>/dev/null || true
-        scp -P $SSH_PORT omnireduce.cfg "$agg_host":/usr/local/omnireduce/example/ 2>/dev/null || true
-    done
-    for ((i=0; i<wnum; i++)); do
-        local worker_host="${worker_ips[$i]}"
-        ssh -p $SSH_PORT "$worker_host" "mkdir -p /home/exps/benchmark" 2>/dev/null || true
-        scp -P $SSH_PORT omnireduce.cfg "$worker_host":/home/exps/benchmark/ 2>/dev/null || true
-    done
-}
-
 # Start aggregators on specified count
 start_aggregators() {
     local anum=$1
     local aggregator_ips=($AGGREGATOR_IPS)
     
-    echo "Starting $anum aggregators..."
+    # ensure we don't iterate past the provided aggregator_ips
+    local provided=${#aggregator_ips[@]}
+    if [[ $anum -gt $provided ]]; then
+        echo "Warning: requested $anum aggregators but only $provided aggregator_ips provided; limiting to $provided"
+        anum=$provided
+    fi
+
+    echo "Starting $anum aggregators using srun..."
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
-        ssh -p $SSH_PORT "$agg_host" "pkill -9 aggregator; cd /usr/local/omnireduce/example; nohup ./aggregator > aggregator_${i}.log 2>&1 &" &
+        srun --nodes=1 -w "$agg_host" --exclusive \
+            bash -c "pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
     wait
     sleep 2  # give aggregators time to initialize
@@ -150,10 +139,16 @@ stop_aggregators() {
     local anum=$1
     local aggregator_ips=($AGGREGATOR_IPS)
     
+    # ensure we don't iterate past the provided aggregator_ips
+    local provided=${#aggregator_ips[@]}
+    if [[ $anum -gt $provided ]]; then
+        anum=$provided
+    fi
+    
     echo "Stopping $anum aggregators..."
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
-        ssh -p 2222 "$agg_host" "pkill -9 aggregator" &
+        srun --nodes=1 -w "$agg_host" --exclusive bash -c "pkill -9 aggregator" &
     done
     wait
     sleep 1
@@ -175,23 +170,25 @@ run_benchmark() {
     # Start aggregators
     start_aggregators "$MAX_AGGREGATORS"
     
-    # Start workers
+    # Start workers using srun (no SSH needed; runs within SLURM allocation)
     for ((i=0; i<wnum; i++)); do
         local worker_host="${worker_ips[$i]}"
         echo "  Starting worker $i on $worker_host"
-        ssh -p $SSH_PORT "$worker_host" \
-            "cd /home/exps/benchmark && \
-             export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} && \
-             export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-eth0} && \
-             /usr/local/conda/bin/python benchmark.py \
-               --backend $BACKEND \
-               --tensor-size $msg_size \
-               --block-size $BLOCK_SIZE \
-               --density $DENSITY \
-               --rank $i \
-               --size $wnum \
-               --ip ${worker_ips[0]} \
-               > $result_dir/worker_${i}.log 2>&1" &
+        
+        srun --nodes=1 --ntasks=1 --exclusive -w "$worker_host" \
+            bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
+                     export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH && \
+                     export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} && \
+                     export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} && \
+                     python $(basename $BENCHMARK_SCRIPT) \
+                       --backend $BACKEND \
+                       --tensor-size $msg_size \
+                       --block-size $BLOCK_SIZE \
+                       --density $DENSITY \
+                       --rank $i \
+                       --size $wnum \
+                       --ip ${worker_ips[0]}" \
+            > "$result_dir/worker_${i}.log" 2>&1 &
     done
     
     # Wait for workers to complete
@@ -201,19 +198,17 @@ run_benchmark() {
     # Stop aggregators
     stop_aggregators "$MAX_AGGREGATORS"
     
-    # Aggregate results (simple: grab latencies from logs)
+    # Aggregate results from local log files (shared pscratch filesystem)
     echo "  Collecting results..."
     local result_file="$result_dir/summary.txt"
-    if [[ -f "${worker_ips[0]}:$result_dir/worker_0.log" ]]; then
-        # Collect timing data from worker logs
-        echo "Nodes: $wnum, MessageSize: $((msg_size/1024/1024))MiB, Density: $DENSITY" > "$result_file"
-        for ((i=0; i<wnum; i++)); do
-            local worker_host="${worker_ips[$i]}"
-            scp -P 2222 "$worker_host:$result_dir/worker_${i}.log" "$result_dir/worker_${i}.log" 2>/dev/null || true
-            # Extract timing from log (example: grep "time:" and average)
-            grep "time:" "$result_dir/worker_${i}.log" | awk '{sum+=$NF} END {if(NR>0) print "Worker '$i' avg: " sum/NR " us"}' >> "$result_file" || true
-        done
-    fi
+    echo "Nodes: $wnum, MessageSize: $((msg_size/1024/1024))MiB, Density: $DENSITY, BlockSize: $BLOCK_SIZE" > "$result_file"
+    for ((i=0; i<wnum; i++)); do
+        # Extract last few lines from worker log
+        if [[ -f "$result_dir/worker_${i}.log" ]]; then
+            echo "--- Worker $i ---" >> "$result_file"
+            tail -10 "$result_dir/worker_${i}.log" >> "$result_file" 2>/dev/null || true
+        fi
+    done
     
     echo "  ✓ Benchmark completed"
 }
@@ -263,11 +258,8 @@ main() {
     
     # Warn about LD_LIBRARY_PATH
     if [[ -z "$LD_LIBRARY_PATH" ]]; then
-        echo "WARNING: LD_LIBRARY_PATH not set. Make sure omnireduce/build is in LD_LIBRARY_PATH on worker nodes"
+        echo "WARNING: LD_LIBRARY_PATH not set. Make sure omnireduce/build is in LD_LIBRARY_PATH"
     fi
-    
-    # Deploy config files to nodes
-    deploy_config "$MAX_WORKERS" "$MAX_AGGREGATORS"
     
     # Create root results directory
     local results_root="./100G-results/sweep-$(date +%Y%m%d-%H%M%S)"
