@@ -8,6 +8,8 @@
 #
 # Options:
 #   --msg-size MiB    Benchmark only specified message size (256, 512, or 1024 MiB)
+#   --warmup ITERS    Number of warmup iterations (default 10)
+#   --measure ITERS   Number of measurement iterations (default 100)
 #   --help            Show this help message
 #
 # Prerequisites:
@@ -20,14 +22,24 @@ set -e
 
 # Parse command-line arguments
 MSG_SIZE_MIB=""
+WARMUP_ITERS=10
+MEASURE_ITERS=100
 while [[ $# -gt 0 ]]; do
     case $1 in
         --msg-size)
             MSG_SIZE_MIB="$2"
             shift 2
             ;;
+        --warmup)
+            WARMUP_ITERS="$2"
+            shift 2
+            ;;
+        --measure)
+            MEASURE_ITERS="$2"
+            shift 2
+            ;;
         --help)
-            grep "^#" "$0" | head -20
+            grep "^#" "$0" | head -25
             exit 0
             ;;
         *)
@@ -270,7 +282,7 @@ run_benchmark() {
                        --density $DENSITY \
                        --rank $i \
                        --size $wnum \
-                       --ip $coord_ip" \
+                       --ip $coord_ip \\\n                       --warmup-iters $WARMUP_ITERS \\\n                       --measure-iters $MEASURE_ITERS\" \\
             > "$result_dir/worker_${i}.log" 2>&1 &
     done
     

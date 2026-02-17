@@ -59,7 +59,7 @@ def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_tim
             data[i] += tmp[i]
     return data
 
-def benchmark(rank, world_size, tensorsize, blocksize, density, check):
+def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100):
     local_rank = 0
     torch.cuda.set_device(local_rank)
     mydevice = torch.device("cuda", local_rank)
@@ -77,7 +77,7 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check):
     localtime = numpy.zeros(1)
     globaltime = numpy.zeros(1)
     #Warm up
-    for step in range(10):
+    for step in range(warmup_iters):
         sys.stdout.flush()
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
         tensor = tensor_data.clone()
@@ -85,7 +85,7 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check):
     print("Warm up over")
     sys.stdout.flush()
     allreduce_times = 0
-    for step in range(100):
+    for step in range(measure_iters):
         localtime = numpy.zeros(1)
         globaltime = numpy.zeros(1)
         if step%1==0:
@@ -134,9 +134,11 @@ def main():
     parser.add_argument('--rank', '-r', type=int)
     parser.add_argument('--size', '-s', type=int)
     parser.add_argument('--check', '-c', type=int, default=0)
+    parser.add_argument('--warmup-iters', type=int, default=10, help='Number of warmup iterations')
+    parser.add_argument('--measure-iters', type=int, default=100, help='Number of measurement iterations')
     args = parser.parse_args()
     initialize(args.backend, args.rank, args.size, args.ip, args.port, args.tensor_size, args.block_size, args.density)
-    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check)
+    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check, args.warmup_iters, args.measure_iters)
 
 if __name__ == '__main__':
     main()
