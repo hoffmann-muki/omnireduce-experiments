@@ -4,7 +4,11 @@
 # Runs allreduce benchmarks with OmniReduce across multiple topologies
 #
 # Usage:
-#   ./sweep-omnireduce.sh
+#   ./sweep-omnireduce.sh [--msg-size MiB]
+#
+# Options:
+#   --msg-size MiB    Benchmark only specified message size (256, 512, or 1024 MiB)
+#   --help            Show this help message
 #
 # Prerequisites:
 #   - Running within a SLURM allocation (salloc or sbatch)
@@ -14,8 +18,42 @@
 
 set -e
 
+# Parse command-line arguments
+MSG_SIZE_MIB=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --msg-size)
+            MSG_SIZE_MIB="$2"
+            shift 2
+            ;;
+        --help)
+            grep "^#" "$0" | head -20
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1"
+            echo "Run with --help for usage"
+            exit 1
+            ;;
+    esac
+done
+
 # Configuration
-MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
+if [[ -n "$MSG_SIZE_MIB" ]]; then
+    # Validate and convert specified message size
+    case "$MSG_SIZE_MIB" in
+        256) MESSAGE_SIZES=(268435456) ;;
+        512) MESSAGE_SIZES=(536870912) ;;
+        1024) MESSAGE_SIZES=(1073741824) ;;
+        *)
+            echo "ERROR: Invalid message size. Choose from: 256, 512, or 1024 MiB"
+            exit 1
+            ;;
+    esac
+else
+    # Default: all message sizes
+    MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
+fi
 NODE_COUNTS=()  # will be auto-detected from SLURM allocation
 DENSITY="1.0"  # dense data (no sparsity)
 BLOCK_SIZE=256
