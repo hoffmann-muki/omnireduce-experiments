@@ -284,7 +284,7 @@ run_benchmark() {
                        --size $wnum \
                        --ip $coord_ip \
                        --warmup-iters $WARMUP_ITERS \
-                       --measure-iters $MEASURE_ITERS\" \
+                       --measure-iters $MEASURE_ITERS" \
             > "$result_dir/worker_${i}.log" 2>&1 &
     done
     
