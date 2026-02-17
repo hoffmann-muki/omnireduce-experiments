@@ -282,7 +282,9 @@ run_benchmark() {
                        --density $DENSITY \
                        --rank $i \
                        --size $wnum \
-                       --ip $coord_ip \\\n                       --warmup-iters $WARMUP_ITERS \\\n                       --measure-iters $MEASURE_ITERS\" \\
+                       --ip $coord_ip \
+                       --warmup-iters $WARMUP_ITERS \
+                       --measure-iters $MEASURE_ITERS\" \
             > "$result_dir/worker_${i}.log" 2>&1 &
     done
     
