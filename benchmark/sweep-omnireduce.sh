@@ -64,6 +64,26 @@ OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-
 OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/example/aggregator}
 BENCHMARK_SCRIPT=${BENCHMARK_SCRIPT:-$(pwd)/benchmark.py}
 
+# Calculate aggregator count using log2 heuristic: floor(log2(num_nodes)), min 1
+calc_aggregators() {
+    local num_nodes=$1
+    
+    if [[ $num_nodes -le 1 ]]; then
+        echo 1
+        return
+    fi
+    
+    local aggs=1
+    local power=2  # 2^1
+    
+    while [[ $((power * 2)) -le $num_nodes ]]; do
+        power=$((power * 2))
+        ((aggs++))
+    done
+    
+    echo $aggs
+}
+
 # Auto-detect node count and populate omnireduce.cfg from SLURM allocation
 detect_node_count() {
     if [[ -z "$SLURM_NODELIST" ]]; then
@@ -92,21 +112,24 @@ detect_node_count() {
         echo "[omnireduce]" > omnireduce.cfg
     fi
     
+    # Calculate aggregators using log2 heuristic
+    local num_aggs=$(calc_aggregators "$num_nodes")
+    
     # Update worker and aggregator IPs, counts
     sed -i.bak 's/^worker_ips.*/worker_ips = '"$hosts_csv"'/' omnireduce.cfg
     sed -i.bak 's/^aggregator_ips.*/aggregator_ips = '"$first_host"'/' omnireduce.cfg
     sed -i.bak 's/^num_workers.*/num_workers = '"$num_nodes"'/' omnireduce.cfg
-    sed -i.bak 's/^num_aggregators.*/num_aggregators = 1/' omnireduce.cfg
+    sed -i.bak 's/^num_aggregators.*/num_aggregators = '"$num_aggs"'/' omnireduce.cfg
     
     # If keys didn't exist, append them
     grep -q "^worker_ips" omnireduce.cfg || echo "worker_ips = $hosts_csv" >> omnireduce.cfg
     grep -q "^aggregator_ips" omnireduce.cfg || echo "aggregator_ips = $first_host" >> omnireduce.cfg
     grep -q "^num_workers" omnireduce.cfg || echo "num_workers = $num_nodes" >> omnireduce.cfg
-    grep -q "^num_aggregators" omnireduce.cfg || echo "num_aggregators = 1" >> omnireduce.cfg
+    grep -q "^num_aggregators" omnireduce.cfg || echo "num_aggregators = $num_aggs" >> omnireduce.cfg
     
     rm -f omnireduce.cfg.bak
     
-    echo "Detected $num_nodes nodes in allocation"
+    echo "Detected $num_nodes nodes in allocation (will use $num_aggs aggregators)"
     NODE_COUNTS=($num_nodes)
 }
 
