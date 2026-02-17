@@ -240,10 +240,23 @@ run_benchmark() {
     # Start aggregators
     start_aggregators "$MAX_AGGREGATORS"
     
+    # Clean up any stale python processes that might be holding ports
+    echo "  Cleaning up stale python processes..."
+    local aggregator_ips=($AGGREGATOR_IPS)
+    for ((i=0; i<MAX_AGGREGATORS; i++)); do
+        srun --nodes=1 -w "${aggregator_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+    done
+    for ((i=0; i<wnum; i++)); do
+        srun --nodes=1 -w "${worker_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+    done
+    sleep 1
+    
     # Start workers using srun (no SSH needed; runs within SLURM allocation)
+    # Use first aggregator's IP as distributed rendezvous coordinator (stable, dedicated node)
+    local coord_ip="${aggregator_ips[0]}"
     for ((i=0; i<wnum; i++)); do
         local worker_host="${worker_ips[$i]}"
-        echo "  Starting worker $i on $worker_host"
+        echo "  Starting worker $i on $worker_host (coordinator: $coord_ip)"
         
         srun --nodes=1 --ntasks=1 --exclusive -w "$worker_host" \
             bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
@@ -257,7 +270,7 @@ run_benchmark() {
                        --density $DENSITY \
                        --rank $i \
                        --size $wnum \
-                       --ip ${worker_ips[0]}" \
+                       --ip $coord_ip" \
             > "$result_dir/worker_${i}.log" 2>&1 &
     done
     
