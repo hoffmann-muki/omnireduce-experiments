@@ -359,7 +359,7 @@ main() {
     fi
     
     # Create root results directory
-    local results_root="./100G-results/sweep-$(date +%Y%m%d-%H%M%S)"
+    local results_root="./results"
     mkdir -p "$results_root"
     
     echo "Results will be saved to: $results_root"
@@ -374,7 +374,7 @@ main() {
         fi
         
         for msg_size in "${MESSAGE_SIZES[@]}"; do
-            local result_dir="$results_root/nodes_${node_count}_msgsize_$((msg_size/1024/1024))MiB"
+            local result_dir="$results_root/node_${node_count}/msgsize_$((msg_size/1024/1024))MiB"
             run_benchmark "$node_count" "$msg_size" "$result_dir"
         done
     done
