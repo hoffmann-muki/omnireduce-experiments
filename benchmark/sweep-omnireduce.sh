@@ -385,68 +385,66 @@ main() {
             mkdir -p "$base_result_dir"
             
             # Initialize CSV header if file doesn't exist
+            # Format now tracks both metrics (time_only and time_with_barrier)
             if [[ ! -f "$csv_file" ]]; then
-                echo "node_count,msgsize,run_1_min,run_1_max,run_1_avg,run_2_min,run_2_max,run_2_avg,run_3_min,run_3_max,run_3_avg,overall_min,overall_max,overall_avg" > "$csv_file"
+                echo "node_count,msgsize,time_only_min,time_only_max,time_only_avg,time_with_barrier_min,time_with_barrier_max,time_with_barrier_avg" > "$csv_file"
             fi
             
             # Run benchmark 3 times and collect stats
-            local run_stats=()
             for run_num in 1 2 3; do
                 local run_result_dir="${base_result_dir}/run_${run_num}"
                 echo "Running node_count=$node_count, msgsize=${msgsize_mib}MiB, run=$run_num/3"
                 run_benchmark "$node_count" "$msg_size" "$run_result_dir"
-                
-                # Extract stats from this run
-                local stats=$(python3 "$SCRIPT_DIR/extract_stats.py" "$run_result_dir" 2>&1 | tail -1)
-                if [[ -n "$stats" ]] && [[ ! "$stats" =~ "No timings" ]]; then
-                    # Extract min,max,avg from output (format: node_count,msgsize,min,max,avg,stddev)
-                    IFS=',' read -ra fields <<< "$stats"
-                    if [[ ${#fields[@]} -ge 5 ]]; then
-                        run_stats+=("${fields[2]}" "${fields[3]}" "${fields[4]}")
-                    else
-                        echo "  WARNING: Could not parse stats from run $run_num: $stats" >&2
-                    fi
-                else
-                    echo "  WARNING: Stats extraction failed for run $run_num" >&2
-                fi
             done
             
-            # Compute overall stats across all 3 runs
-            if [[ ${#run_stats[@]} -eq 9 ]]; then
-                # Pool all timings across runs and recompute overall stats
-                local all_timings=()
-                for run_num in 1 2 3; do
-                    local run_result_dir="${base_result_dir}/run_${run_num}"
-                    for logfile in "$run_result_dir"/worker_*.log; do
-                        if [[ -f "$logfile" ]]; then
-                            while IFS= read -r line; do
-                                if [[ $line =~ ^time:([0-9.e+-]+); ]]; then
-                                    all_timings+=("${BASH_REMATCH[1]}")
-                                fi
-                            done < "$logfile"
-                        fi
-                    done
+            # Pool all raw timings across all 3 runs for both metrics
+            local all_time_only=()
+            local all_time_with_barrier=()
+            
+            for run_num in 1 2 3; do
+                local run_result_dir="${base_result_dir}/run_${run_num}"
+                for logfile in "$run_result_dir"/worker_*.log; do
+                    if [[ -f "$logfile" ]]; then
+                        while IFS= read -r line; do
+                            # Parse: time_only:VALUE;time_with_barrier:VALUE;
+                            if [[ $line =~ time_only:([0-9.e+-]+);time_with_barrier:([0-9.e+-]+); ]]; then
+                                all_time_only+=("${BASH_REMATCH[1]}")
+                                all_time_with_barrier+=("${BASH_REMATCH[2]}")
+                            fi
+                        done < "$logfile"
+                    fi
                 done
+            done
+            
+            # Compute overall stats for both metrics using awk
+            if [[ ${#all_time_only[@]} -gt 0 ]]; then
+                local time_only_stats=$(printf "%s\n" "${all_time_only[@]}" | awk '{
+                    if (NR==1 || $1<min) min=$1
+                    if (NR==1 || $1>max) max=$1
+                    sum+=$1
+                    count++
+                } END {
+                    if (count > 0) {
+                        avg=sum/count
+                        printf "%.1f,%.1f,%.1f", min, max, avg
+                    }
+                }')
                 
-                # Compute overall min/max/avg using awk
-                if [[ ${#all_timings[@]} -gt 0 ]]; then
-                    local awk_input=$(printf "%s\n" "${all_timings[@]}")
-                    local overall_stats=$(echo "$awk_input" | awk '{
-                        if (NR==1 || $1<min) min=$1
-                        if (NR==1 || $1>max) max=$1
-                        sum+=$1
-                        count++
-                    } END {
-                        if (count > 0) {
-                            avg=sum/count
-                            printf "%.1f,%.1f,%.1f", min, max, avg
-                        }
-                    }')
-                    
-                    # Write CSV row
-                    echo "$node_count,$msgsize_mib,${run_stats[0]},${run_stats[1]},${run_stats[2]},${run_stats[3]},${run_stats[4]},${run_stats[5]},${run_stats[6]},${run_stats[7]},${run_stats[8]},$overall_stats" >> "$csv_file"
-                    echo "  ✓ Results appended to: $csv_file"
-                fi
+                local barrier_stats=$(printf "%s\n" "${all_time_with_barrier[@]}" | awk '{
+                    if (NR==1 || $1<min) min=$1
+                    if (NR==1 || $1>max) max=$1
+                    sum+=$1
+                    count++
+                } END {
+                    if (count > 0) {
+                        avg=sum/count
+                        printf "%.1f,%.1f,%.1f", min, max, avg
+                    }
+                }')
+                
+                # Write CSV row with node_count, msgsize, time_only stats, time_with_barrier stats
+                echo "$node_count,$msgsize_mib,$time_only_stats,$barrier_stats" >> "$csv_file"
+                echo "  ✓ Results appended to: $csv_file"
             fi
         done
     done

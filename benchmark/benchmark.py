@@ -86,20 +86,27 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_it
     sys.stdout.flush()
     allreduce_times = 0
     for step in range(measure_iters):
-        localtime = numpy.zeros(1)
-        globaltime = numpy.zeros(1)
         if step%1==0:
             allreduce_times = 0
             tensor = tensor_data.clone()
+        
+        # Pre-barrier (not timed)
+        dist.barrier(group=group)
         torch.cuda.synchronize()
-        allreduce_times += 1
+        
+        # Timer 1: all_reduce only
         begin = time.time()
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
         torch.cuda.synchronize()
-        localtime[0] = int((time.time()-begin)*1000000)
-        globaltime[0]=localtime[0]
-        if rank>=0:
-            print("time:"+str(globaltime[0])+";")
+        time_only = int((time.time() - begin) * 1000000)
+        
+        # Post-barrier and compute total time
+        dist.barrier(group=group)
+        time_with_barrier = int((time.time() - begin) * 1000000)
+        
+        allreduce_times += 1
+        if rank >= 0:
+            print(f"time_only:{time_only};time_with_barrier:{time_with_barrier};")
             sys.stdout.flush()
 
     if rank==0 and check==1:
