@@ -4,10 +4,12 @@
 # Runs allreduce benchmarks with OmniReduce across multiple topologies
 #
 # Usage:
-#   ./sweep-omnireduce.sh [--msg-size MiB]
+#   ./sweep-omnireduce.sh [--msg-size MiB] [--density FLOAT] [--backend NAME]
 #
 # Options:
 #   --msg-size MiB    Benchmark only specified message size (256, 512, or 1024 MiB)
+#   --density FLOAT   Data density 0.0-1.0 (default 1.0)
+#   --backend NAME    PyTorch backend: nccl, gloo, mpi (default gloo)
 #   --warmup ITERS    Number of warmup iterations (default 10)
 #   --measure ITERS   Number of measurement iterations (default 100)
 #   --help            Show this help message
@@ -25,12 +27,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse command-line arguments
 MSG_SIZE_MIB=""
+DENSITY="1.0"
+BACKEND="gloo"
 WARMUP_ITERS=10
 MEASURE_ITERS=100
 while [[ $# -gt 0 ]]; do
     case $1 in
         --msg-size)
             MSG_SIZE_MIB="$2"
+            shift 2
+            ;;
+        --density)
+            DENSITY="$2"
+            shift 2
+            ;;
+        --backend)
+            BACKEND="$2"
             shift 2
             ;;
         --warmup)
@@ -42,7 +54,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help)
-            grep "^#" "$0" | head -25
+            grep "^#" "$0" | head -29
             exit 0
             ;;
         *)
@@ -70,9 +82,7 @@ else
     MESSAGE_SIZES=(268435456 536870912 1073741824)  # 256 MiB, 512 MiB, 1024 MiB (in bytes)
 fi
 NODE_COUNTS=()  # will be auto-detected from SLURM allocation
-DENSITY="1.0"  # dense data (no sparsity)
 BLOCK_SIZE=256
-BACKEND="gloo"
 
 # Path configuration (adjust if your install is in a different location)
 OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce/build}
@@ -378,7 +388,7 @@ main() {
         
         for msg_size in "${MESSAGE_SIZES[@]}"; do
             local msgsize_mib=$((msg_size/1024/1024))
-            local base_result_dir="$results_root/node_${node_count}/msgsize_${msgsize_mib}MiB"
+            local base_result_dir="$results_root/node_${node_count}/msgsize_${msgsize_mib}MiB/density_${DENSITY}"
             local csv_file="$base_result_dir/summary.csv"
             
             # Ensure base directory exists
