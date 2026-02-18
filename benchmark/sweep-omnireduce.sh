@@ -407,7 +407,7 @@ main() {
                     if [[ -f "$logfile" ]]; then
                         while IFS= read -r line; do
                             # Parse: time_only:VALUE;time_with_barrier:VALUE;
-                            if [[ $line =~ time_only:([0-9.e+\-]+);time_with_barrier:([0-9.e+\-]+); ]]; then
+                            if [[ $line =~ time_only:([0-9.e+\-]+)\;time_with_barrier:([0-9.e+\-]+)\; ]]; then
                                 all_time_only+=("${BASH_REMATCH[1]}")
                                 all_time_with_barrier+=("${BASH_REMATCH[2]}")
                             fi
