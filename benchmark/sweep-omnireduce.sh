@@ -89,26 +89,6 @@ OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-
 OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/example/aggregator}
 BENCHMARK_SCRIPT=${BENCHMARK_SCRIPT:-$(pwd)/benchmark.py}
 
-# Calculate aggregator count using log2 heuristic: floor(log2(num_nodes)), min 1
-calc_aggregators() {
-    local num_nodes=$1
-    
-    if [[ $num_nodes -le 1 ]]; then
-        echo 1
-        return
-    fi
-    
-    local aggs=1
-    local power=2  # 2^1
-    
-    while [[ $((power * 2)) -le $num_nodes ]]; do
-        power=$((power * 2))
-        ((aggs++))
-    done
-    
-    echo $aggs
-}
-
 # Auto-detect node count and populate omnireduce.cfg from SLURM allocation
 detect_node_count() {
     if [[ -z "$SLURM_NODELIST" ]]; then
@@ -130,10 +110,10 @@ detect_node_count() {
     # Build an array of hosts (readarray reads all lines correctly)
     readarray -t hosts_arr <<< "$hosts"
 
-    # Decide number of aggregators using the log2 heuristic
-    local num_aggs=$(calc_aggregators "$num_nodes")
+    # One aggregator per node
+    local num_aggs=$num_nodes
 
-    # Choose first `num_aggs` hosts as aggregators (can be changed to a different placement heuristic)
+    # Choose first `num_aggs` hosts as aggregators (will be all nodes in this case)
     local aggregator_arr=()
     for ((i=0; i<num_aggs; i++)); do
         aggregator_arr+=("${hosts_arr[$i]}")
@@ -163,7 +143,7 @@ detect_node_count() {
     
     rm -f omnireduce.cfg.bak
     
-    echo "Detected $num_nodes nodes in allocation (will use $num_aggs aggregators)"
+    echo "Detected $num_nodes nodes in allocation (will use $num_nodes aggregators - one per node)"
     NODE_COUNTS=($num_nodes)
 }
 
