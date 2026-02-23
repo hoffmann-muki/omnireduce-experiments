@@ -1,0 +1,18 @@
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+0.25
+Warm up over
+time_only:65477146;time_with_barrier:65511839;
+time_only:64689250;time_with_barrier:64722645;
+time_only:64689497;time_with_barrier:64724310;
+time_only:64690556;time_with_barrier:64724949;
+time_only:64689469;time_with_barrier:64722325;
+time_only:64690279;time_with_barrier:64723673;
+time_only:64689324;time_with_barrier:64722506;
+time_only:64689215;time_with_barrier:64723917;
+time_only:64690792;time_with_barrier:64724375;
+time_only:65611297;time_with_barrier:65643417;
+time_only:64673177;time_with_barrier:64705201;
+time_only:64673017;time_with_barrier:64703370;
+time_only:64687344;time_with_barrier:64704646;
+slurmstepd: error: *** STEP 49205000.109 ON nid002733 CANCELLED AT 2026-02-22T01:36:27 DUE TO TIME LIMIT ***

@@ -1,0 +1,2 @@
+node_count,msgsize,time_only_min,time_only_max,time_only_avg,time_with_barrier_min,time_with_barrier_max,time_with_barrier_avg
+8,512,32336004.0,58211191.0,56175287.8,32358853.0,58214118.0,56224036.3

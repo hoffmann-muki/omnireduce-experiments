@@ -1,0 +1,89 @@
+Nodes: 8, MessageSize: 256MiB, Density: 0.1, BlockSize: 256
+--- Worker 0 ---
+time_only:16230533;time_with_barrier:16240364;
+time_only:16234014;time_with_barrier:16243223;
+time_only:16237315;time_with_barrier:16247017;
+time_only:16249303;time_with_barrier:16257851;
+time_only:16234109;time_with_barrier:16242439;
+time_only:16244785;time_with_barrier:16254397;
+time_only:16235926;time_with_barrier:16245194;
+time_only:16315581;time_with_barrier:16324588;
+time_only:16240560;time_with_barrier:16249750;
+time_only:16237164;time_with_barrier:16245923;
+--- Worker 1 ---
+time_only:16239722;time_with_barrier:16240368;
+time_only:16242578;time_with_barrier:16243282;
+time_only:16246359;time_with_barrier:16247023;
+time_only:16257095;time_with_barrier:16257727;
+time_only:16241939;time_with_barrier:16242580;
+time_only:16253812;time_with_barrier:16254494;
+time_only:16244472;time_with_barrier:16245156;
+time_only:16323844;time_with_barrier:16324641;
+time_only:16248991;time_with_barrier:16249714;
+time_only:16245289;time_with_barrier:16245894;
+--- Worker 2 ---
+time_only:16220092;time_with_barrier:16240321;
+time_only:16223155;time_with_barrier:16243228;
+time_only:16226744;time_with_barrier:16247156;
+time_only:16238315;time_with_barrier:16257799;
+time_only:16223222;time_with_barrier:16242485;
+time_only:16234210;time_with_barrier:16254423;
+time_only:16225246;time_with_barrier:16245104;
+time_only:16304565;time_with_barrier:16324601;
+time_only:16229652;time_with_barrier:16249704;
+time_only:16226407;time_with_barrier:16245952;
+--- Worker 3 ---
+time_only:16204387;time_with_barrier:16240396;
+time_only:16207238;time_with_barrier:16243190;
+time_only:16210860;time_with_barrier:16247019;
+time_only:16221876;time_with_barrier:16257747;
+time_only:16206937;time_with_barrier:16242497;
+time_only:16217935;time_with_barrier:16254537;
+time_only:16209385;time_with_barrier:16245083;
+time_only:16288094;time_with_barrier:16324529;
+time_only:16213269;time_with_barrier:16249734;
+time_only:16210362;time_with_barrier:16245978;
+--- Worker 4 ---
+time_only:16195126;time_with_barrier:16240483;
+time_only:16201911;time_with_barrier:16243143;
+time_only:16205279;time_with_barrier:16247051;
+time_only:16218437;time_with_barrier:16257777;
+time_only:16200557;time_with_barrier:16242593;
+time_only:16209934;time_with_barrier:16254223;
+time_only:16201532;time_with_barrier:16245239;
+time_only:16280808;time_with_barrier:16324496;
+time_only:16205129;time_with_barrier:16249760;
+time_only:16201930;time_with_barrier:16245975;
+--- Worker 5 ---
+time_only:16211205;time_with_barrier:16240399;
+time_only:16210877;time_with_barrier:16243247;
+time_only:16215115;time_with_barrier:16247010;
+time_only:16230042;time_with_barrier:16257710;
+time_only:16213493;time_with_barrier:16242539;
+time_only:16224980;time_with_barrier:16254479;
+time_only:16216033;time_with_barrier:16245118;
+time_only:16293659;time_with_barrier:16324625;
+time_only:16220793;time_with_barrier:16249640;
+time_only:16216458;time_with_barrier:16245887;
+--- Worker 6 ---
+time_only:16212593;time_with_barrier:16240336;
+time_only:16216012;time_with_barrier:16243203;
+time_only:16219140;time_with_barrier:16247100;
+time_only:16231450;time_with_barrier:16257719;
+time_only:16216138;time_with_barrier:16242508;
+time_only:16227107;time_with_barrier:16254484;
+time_only:16218561;time_with_barrier:16245091;
+time_only:16297210;time_with_barrier:16324611;
+time_only:16221927;time_with_barrier:16249699;
+time_only:16218631;time_with_barrier:16245959;
+--- Worker 7 ---
+time_only:16221971;time_with_barrier:16240449;
+time_only:16224917;time_with_barrier:16243268;
+time_only:16228261;time_with_barrier:16247008;
+time_only:16240155;time_with_barrier:16257690;
+time_only:16225353;time_with_barrier:16242512;
+time_only:16236764;time_with_barrier:16254472;
+time_only:16226694;time_with_barrier:16245153;
+time_only:16306597;time_with_barrier:16324520;
+time_only:16231794;time_with_barrier:16249771;
+time_only:16228856;time_with_barrier:16245964;

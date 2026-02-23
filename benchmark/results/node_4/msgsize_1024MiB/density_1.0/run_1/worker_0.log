@@ -1,0 +1,24 @@
+[Gloo] Rank 0 is connected to 3 peer ranks. Expected number of connected peer ranks is : 3
+[Gloo] Rank 0 is connected to 3 peer ranks. Expected number of connected peer ranks is : 3
+1.0
+Warm up over
+time_only:55493096;time_with_barrier:55517065;
+time_only:55489050;time_with_barrier:55511861;
+time_only:55473775;time_with_barrier:55498553;
+time_only:55945116;time_with_barrier:55964841;
+time_only:55778953;time_with_barrier:55803297;
+time_only:55490149;time_with_barrier:55513286;
+time_only:55490232;time_with_barrier:55513895;
+time_only:55490608;time_with_barrier:55513558;
+time_only:55489243;time_with_barrier:55512423;
+time_only:55489994;time_with_barrier:55513641;
+time_only:55489706;time_with_barrier:55512367;
+time_only:55489719;time_with_barrier:55513068;
+time_only:55489834;time_with_barrier:55512743;
+time_only:56173156;time_with_barrier:56192075;
+time_only:55498340;time_with_barrier:55517634;
+time_only:55520663;time_with_barrier:55543972;
+time_only:55489910;time_with_barrier:55513038;
+time_only:55489458;time_with_barrier:55512745;
+time_only:55489479;time_with_barrier:55512144;
+time_only:55490190;time_with_barrier:55512978;

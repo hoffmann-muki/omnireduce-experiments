@@ -1,0 +1,17 @@
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+Warm up over
+time_only:65492509;time_with_barrier:65509468;
+time_only:64706704;time_with_barrier:64722731;
+time_only:64706502;time_with_barrier:64724209;
+time_only:64707057;time_with_barrier:64724932;
+time_only:64706254;time_with_barrier:64722429;
+time_only:64705986;time_with_barrier:64723590;
+time_only:64706134;time_with_barrier:64722449;
+time_only:64707076;time_with_barrier:64724142;
+time_only:64706669;time_with_barrier:64724398;
+time_only:65623918;time_with_barrier:65643298;
+time_only:64685022;time_with_barrier:64705117;
+time_only:64684193;time_with_barrier:64703371;
+time_only:64686068;time_with_barrier:64704538;
+slurmstepd: error: *** STEP 49205000.110 ON nid002740 CANCELLED AT 2026-02-22T01:36:27 DUE TO TIME LIMIT ***

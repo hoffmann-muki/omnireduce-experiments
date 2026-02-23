@@ -1,0 +1,23 @@
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+Warm up over
+time_only:65290339;time_with_barrier:65309396;
+time_only:69084878;time_with_barrier:69107799;
+time_only:69830131;time_with_barrier:69853152;
+time_only:65320528;time_with_barrier:65343033;
+time_only:68073691;time_with_barrier:68096597;
+time_only:66431919;time_with_barrier:66453059;
+time_only:68618121;time_with_barrier:68641465;
+time_only:68167647;time_with_barrier:68189174;
+time_only:65691173;time_with_barrier:65714862;
+time_only:65272777;time_with_barrier:65295664;
+time_only:65084013;time_with_barrier:65107829;
+time_only:66665508;time_with_barrier:66689640;
+time_only:66659456;time_with_barrier:66684083;
+time_only:68169544;time_with_barrier:68191945;
+time_only:71715094;time_with_barrier:71738762;
+time_only:66672726;time_with_barrier:66696807;
+time_only:68398740;time_with_barrier:68433420;
+time_only:66169114;time_with_barrier:66192247;
+time_only:71282392;time_with_barrier:71301626;
+time_only:69006291;time_with_barrier:69026825;

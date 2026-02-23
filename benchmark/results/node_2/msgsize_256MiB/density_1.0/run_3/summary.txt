@@ -1,0 +1,23 @@
+Nodes: 2, MessageSize: 256MiB, Density: 1.0, BlockSize: 256
+--- Worker 0 ---
+time_only:9981178;time_with_barrier:9982384;
+time_only:9975498;time_with_barrier:9975776;
+time_only:9984374;time_with_barrier:9985618;
+time_only:9976885;time_with_barrier:9977952;
+time_only:9977998;time_with_barrier:9979038;
+time_only:9977829;time_with_barrier:9979154;
+time_only:9974781;time_with_barrier:9975041;
+time_only:10347442;time_with_barrier:10348459;
+time_only:9985070;time_with_barrier:9986134;
+time_only:9981660;time_with_barrier:9982693;
+--- Worker 1 ---
+time_only:9982066;time_with_barrier:9982366;
+time_only:9974254;time_with_barrier:9975676;
+time_only:9985435;time_with_barrier:9985710;
+time_only:9977690;time_with_barrier:9977926;
+time_only:9978820;time_with_barrier:9979047;
+time_only:9978878;time_with_barrier:9979196;
+time_only:9973865;time_with_barrier:9974948;
+time_only:10348284;time_with_barrier:10348555;
+time_only:9985872;time_with_barrier:9986199;
+time_only:9982365;time_with_barrier:9982645;

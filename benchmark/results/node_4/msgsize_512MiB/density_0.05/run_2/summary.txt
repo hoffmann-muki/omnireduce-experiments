@@ -1,0 +1,45 @@
+Nodes: 4, MessageSize: 512MiB, Density: 0.05, BlockSize: 256
+--- Worker 0 ---
+time_only:27907172;time_with_barrier:27907793;
+time_only:28029621;time_with_barrier:28030206;
+time_only:27965649;time_with_barrier:27966195;
+time_only:28019529;time_with_barrier:28020178;
+time_only:27909573;time_with_barrier:27910030;
+time_only:28009834;time_with_barrier:28010369;
+time_only:27960766;time_with_barrier:27961293;
+time_only:27925783;time_with_barrier:27926327;
+time_only:28022698;time_with_barrier:28023222;
+time_only:28046585;time_with_barrier:28047147;
+--- Worker 1 ---
+time_only:27881858;time_with_barrier:27907730;
+time_only:28004794;time_with_barrier:28030233;
+time_only:27940707;time_with_barrier:27966191;
+time_only:27994479;time_with_barrier:28019990;
+time_only:27884241;time_with_barrier:27910099;
+time_only:27984583;time_with_barrier:28010258;
+time_only:27935466;time_with_barrier:27961329;
+time_only:27899953;time_with_barrier:27926330;
+time_only:27995017;time_with_barrier:28023196;
+time_only:28021429;time_with_barrier:28047096;
+--- Worker 2 ---
+time_only:27883925;time_with_barrier:27907811;
+time_only:28005985;time_with_barrier:28030173;
+time_only:27941606;time_with_barrier:27966137;
+time_only:27995794;time_with_barrier:28020093;
+time_only:27885789;time_with_barrier:27910129;
+time_only:27985150;time_with_barrier:28010265;
+time_only:27937519;time_with_barrier:27961281;
+time_only:27900470;time_with_barrier:27926326;
+time_only:27996438;time_with_barrier:28023229;
+time_only:28022569;time_with_barrier:28047179;
+--- Worker 3 ---
+time_only:27898018;time_with_barrier:27907803;
+time_only:28021528;time_with_barrier:28030158;
+time_only:27957720;time_with_barrier:27966317;
+time_only:28011098;time_with_barrier:28019950;
+time_only:27900276;time_with_barrier:27910109;
+time_only:28001321;time_with_barrier:28010288;
+time_only:27951369;time_with_barrier:27961233;
+time_only:27917006;time_with_barrier:27926364;
+time_only:28011085;time_with_barrier:28023169;
+time_only:28038011;time_with_barrier:28047163;
