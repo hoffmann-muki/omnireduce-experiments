@@ -274,7 +274,7 @@ run_benchmark() {
         local agg_host="${agg_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
         srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 \
-            bash -c "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
+            bash -c "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
     wait
     sleep 2
