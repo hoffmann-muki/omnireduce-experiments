@@ -240,7 +240,7 @@ stop_aggregators() {
     echo "Stopping $anum aggregators..."
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
-        srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 bash -c "pkill -9 aggregator" &
+        ssh "$agg_host" "pkill -9 aggregator" 2>/dev/null || true &
     done
     wait
     sleep 1
@@ -274,7 +274,7 @@ run_benchmark() {
         local agg_host="${agg_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
         srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 \
-            bash -c "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
+            bash -c "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; export CUDA_VISIBLE_DEVICES=\"\"; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
     wait
     sleep 2
