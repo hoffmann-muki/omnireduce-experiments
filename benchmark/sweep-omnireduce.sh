@@ -203,29 +203,6 @@ read_config() {
     export AGGREGATOR_IPS="${aggregator_arr[*]}"
 }
 
-# Start aggregators on specified count
-start_aggregators() {
-    local anum=$1
-    local aggregator_ips=($AGGREGATOR_IPS)
-    
-    # ensure we don't iterate past the provided aggregator_ips
-    local provided=${#aggregator_ips[@]}
-    if [[ $anum -gt $provided ]]; then
-        echo "Warning: requested $anum aggregators but only $provided aggregator_ips provided; limiting to $provided"
-        anum=$provided
-    fi
-
-    echo "Starting $anum aggregators using srun..."
-    for ((i=0; i<anum; i++)); do
-        local agg_host="${aggregator_ips[$i]}"
-        echo "  Starting aggregator on $agg_host"
-        srun --nodes=1 -w "$agg_host" --exclusive \
-            bash -c "pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
-    done
-    wait
-    sleep 2  # give aggregators time to initialize
-}
-
 # Stop aggregators
 stop_aggregators() {
     local anum=$1
@@ -269,12 +246,11 @@ run_benchmark() {
     
     # Start aggregators
     local num_aggs=${#agg_ips[@]}
-    echo "Starting $num_aggs aggregators using srun..."
+    echo "Starting $num_aggs aggregators using ssh..."
     for ((i=0; i<num_aggs; i++)); do
         local agg_host="${agg_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
-        srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 \
-            bash -c "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; export CUDA_VISIBLE_DEVICES=\"\"; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
+        ssh "$agg_host" "export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64:\$LD_LIBRARY_PATH; export CUDA_VISIBLE_DEVICES=\"\"; pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
     wait
     sleep 2
@@ -282,22 +258,22 @@ run_benchmark() {
     # Clean up any stale python processes
     echo "  Cleaning up stale python processes..."
     for ((i=0; i<num_aggs; i++)); do
-        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive --gpus=0 bash -c "pkill -9 python" 2>/dev/null || true
+        ssh "${agg_ips[$i]}" "pkill -9 python" 2>/dev/null || true &
     done
     for ((i=0; i<num_nodes; i++)); do
-        srun --nodes=1 -w "${worker_ips[$i]}" --exclusive --gpus=0 bash -c "pkill -9 python" 2>/dev/null || true
+        ssh "${worker_ips[$i]}" "pkill -9 python" 2>/dev/null || true &
     done
+    wait
     sleep 1
     
-    # Launch workers: one srun per GPU across all nodes
+    # Launch workers: one ssh per GPU across all nodes
     local global_rank=0
     for ((node_idx=0; node_idx<num_nodes; node_idx++)); do
         local worker_host="${worker_ips[$node_idx]}"
         for ((local_rank=0; local_rank<gpus_per_node; local_rank++)); do
             echo "  Starting worker rank=$global_rank (node=$node_idx, local_gpu=$local_rank) on $worker_host"
             
-            srun --nodes=1 --ntasks=1 --exclusive --gpus-per-task=1 -w "$worker_host" \
-                bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
+            ssh "$worker_host" "cd $(dirname $BENCHMARK_SCRIPT) && \
                          export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH && \
                          export CUDA_VISIBLE_DEVICES=$local_rank && \
                          export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} && \
