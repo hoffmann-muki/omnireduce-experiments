@@ -60,7 +60,9 @@ def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_tim
     return data
 
 def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100):
-    local_rank = 0
+    # Determine local rank (GPU index on this node)
+    # First try SLURM_LOCALID, fall back to 0
+    local_rank = int(os.environ.get('SLURM_LOCALID', '0'))
     torch.cuda.set_device(local_rank)
     mydevice = torch.device("cuda", local_rank)
     begin = time.time()

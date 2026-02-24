@@ -89,6 +89,23 @@ OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-
 OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/example/aggregator}
 BENCHMARK_SCRIPT=${BENCHMARK_SCRIPT:-$(pwd)/benchmark.py}
 
+# Detect GPUs per node from SLURM allocation
+detect_gpus_per_node() {
+    # Try SLURM_GPUS_PER_NODE first (set if --gpus-per-node was used in sbatch/salloc)
+    if [[ -n "$SLURM_GPUS_PER_NODE" ]]; then
+        # SLURM_GPUS_PER_NODE can be "4" or "4(IDX:0-1)" etc; extract the number
+        echo "${SLURM_GPUS_PER_NODE%%(*}"
+    else
+        # Fallback: try to count available GPUs on the current node
+        if command -v nvidia-smi &>/dev/null; then
+            nvidia-smi --list-gpus 2>/dev/null | wc -l
+        else
+            # Default to 1 if no GPU detection available
+            echo 1
+        fi
+    fi
+}
+
 # Auto-detect node count and populate omnireduce.cfg from SLURM allocation
 detect_node_count() {
     if [[ -z "$SLURM_NODELIST" ]]; then
@@ -229,71 +246,94 @@ stop_aggregators() {
     sleep 1
 }
 
-# Run benchmark for given node count and message size
+# Run benchmark for given configuration
+# Args: num_nodes, gpus_per_node, msg_size, result_dir, worker_ips_str, aggregator_ips_str, coord_ip
 run_benchmark() {
-    local wnum=$1
-    local msg_size=$2
-    local result_dir=$3
+    local num_nodes=$1
+    local gpus_per_node=$2
+    local msg_size=$3
+    local result_dir=$4
+    local worker_ips_str=$5
+    local aggregator_ips_str=$6
+    local coord_ip=$7
     
-    local worker_ips=($WORKER_IPS)
+    # Convert space-separated strings to arrays
+    read -ra worker_ips <<< "$worker_ips_str"
+    read -ra agg_ips <<< "$aggregator_ips_str"
     
     # Create result directory
     mkdir -p "$result_dir"
     
-    echo "Running benchmark: nodes=$wnum, msg_size=$((msg_size/1024/1024))MiB, density=$DENSITY"
+    local total_workers=$((num_nodes * gpus_per_node))
+    echo "Running benchmark: nodes=$num_nodes, gpus_per_node=$gpus_per_node, total_workers=$total_workers, msg_size=$((msg_size/1024/1024))MiB, density=$DENSITY"
     
     # Start aggregators
-    start_aggregators "$MAX_AGGREGATORS"
-    
-    # Clean up any stale python processes that might be holding ports
-    echo "  Cleaning up stale python processes..."
-    local aggregator_ips=($AGGREGATOR_IPS)
-    for ((i=0; i<MAX_AGGREGATORS; i++)); do
-        srun --nodes=1 -w "${aggregator_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+    local num_aggs=${#agg_ips[@]}
+    echo "Starting $num_aggs aggregators using srun..."
+    for ((i=0; i<num_aggs; i++)); do
+        local agg_host="${agg_ips[$i]}"
+        echo "  Starting aggregator on $agg_host"
+        srun --nodes=1 -w "$agg_host" --exclusive \
+            bash -c "pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
-    for ((i=0; i<wnum; i++)); do
+    wait
+    sleep 2
+    
+    # Clean up any stale python processes
+    echo "  Cleaning up stale python processes..."
+    for ((i=0; i<num_aggs; i++)); do
+        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+    done
+    for ((i=0; i<num_nodes; i++)); do
         srun --nodes=1 -w "${worker_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
     done
     sleep 1
     
-    # Start workers using srun (no SSH needed; runs within SLURM allocation)
-    # Use first aggregator's IP as distributed rendezvous coordinator (stable, dedicated node)
-    local coord_ip="${aggregator_ips[0]}"
-    for ((i=0; i<wnum; i++)); do
-        local worker_host="${worker_ips[$i]}"
-        echo "  Starting worker $i on $worker_host (coordinator: $coord_ip)"
-        
-        srun --nodes=1 --ntasks=1 --exclusive -w "$worker_host" \
-            bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
-                     export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH && \
-                     export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} && \
-                     export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} && \
-                     python $(basename $BENCHMARK_SCRIPT) \
-                       --backend $BACKEND \
-                       --tensor-size $msg_size \
-                       --block-size $BLOCK_SIZE \
-                       --density $DENSITY \
-                       --rank $i \
-                       --size $wnum \
-                       --ip $coord_ip \
-                       --warmup-iters $WARMUP_ITERS \
-                       --measure-iters $MEASURE_ITERS" \
-            > "$result_dir/worker_${i}.log" 2>&1 &
+    # Launch workers: one srun per GPU across all nodes
+    local global_rank=0
+    for ((node_idx=0; node_idx<num_nodes; node_idx++)); do
+        local worker_host="${worker_ips[$node_idx]}"
+        for ((local_rank=0; local_rank<gpus_per_node; local_rank++)); do
+            echo "  Starting worker rank=$global_rank (node=$node_idx, local_gpu=$local_rank) on $worker_host"
+            
+            srun --nodes=1 --ntasks=1 --exclusive -w "$worker_host" \
+                bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
+                         export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH && \
+                         export CUDA_VISIBLE_DEVICES=$local_rank && \
+                         export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} && \
+                         python $(basename $BENCHMARK_SCRIPT) \
+                           --backend $BACKEND \
+                           --tensor-size $msg_size \
+                           --block-size $BLOCK_SIZE \
+                           --density $DENSITY \
+                           --rank $global_rank \
+                           --size $total_workers \
+                           --ip $coord_ip \
+                           --warmup-iters $WARMUP_ITERS \
+                           --measure-iters $MEASURE_ITERS" \
+                > "$result_dir/worker_${global_rank}.log" 2>&1 &
+            
+            global_rank=$((global_rank + 1))
+        done
     done
     
-    # Wait for workers to complete
+    # Wait for all workers to complete
     echo "  Waiting for workers to complete..."
     wait
     
     # Stop aggregators
-    stop_aggregators "$MAX_AGGREGATORS"
+    echo "Stopping $num_aggs aggregators..."
+    for ((i=0; i<num_aggs; i++)); do
+        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive bash -c "pkill -9 aggregator" &
+    done
+    wait
+    sleep 1
     
-    # Aggregate results from local log files (shared pscratch filesystem)
+    # Aggregate results
     echo "  Collecting results..."
     local result_file="$result_dir/summary.txt"
-    echo "Nodes: $wnum, MessageSize: $((msg_size/1024/1024))MiB, Density: $DENSITY, BlockSize: $BLOCK_SIZE" > "$result_file"
-    for ((i=0; i<wnum; i++)); do
-        # Extract last few lines from worker log
+    echo "Nodes: $num_nodes, GPUs/Node: $gpus_per_node, TotalWorkers: $total_workers, MessageSize: $((msg_size/1024/1024))MiB, Density: $DENSITY, BlockSize: $BLOCK_SIZE" > "$result_file"
+    for ((i=0; i<total_workers; i++)); do
         if [[ -f "$result_dir/worker_${i}.log" ]]; then
             echo "--- Worker $i ---" >> "$result_file"
             tail -10 "$result_dir/worker_${i}.log" >> "$result_file" 2>/dev/null || true
@@ -351,6 +391,10 @@ main() {
         echo "WARNING: LD_LIBRARY_PATH not set. Make sure omnireduce/build is in LD_LIBRARY_PATH"
     fi
     
+    # Detect GPUs per node
+    local gpus_per_node=$(detect_gpus_per_node)
+    echo "Detected $gpus_per_node GPUs per node"
+    
     # Create root results directory
     local results_root="./results/${BACKEND}"
     mkdir -p "$results_root"
@@ -383,8 +427,15 @@ main() {
             # Run benchmark 3 times and collect stats
             for run_num in 1 2 3; do
                 local run_result_dir="${base_result_dir}/run_${run_num}"
-                echo "Running node_count=$node_count, msgsize=${msgsize_mib}MiB, run=$run_num/3"
-                run_benchmark "$node_count" "$msg_size" "$run_result_dir"
+                echo "Running node_count=$node_count, msgsize=${msgsize_mib}MiB, gpus_per_node=$gpus_per_node, run=$run_num/3"
+                
+                # Get coordinate IP (first aggregator)
+                local aggregator_ips=($AGGREGATOR_IPS)
+                local coord_ip="${aggregator_ips[0]}"
+                
+                # Call run_benchmark with all parameters
+                run_benchmark "$node_count" "$gpus_per_node" "$msg_size" "$run_result_dir" \
+                    "$WORKER_IPS" "$AGGREGATOR_IPS" "$coord_ip"
             done
             
             # Pool all raw timings across all 3 runs for both metrics
