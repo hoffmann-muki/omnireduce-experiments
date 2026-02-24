@@ -322,12 +322,7 @@ run_benchmark() {
     wait
     
     # Stop aggregators
-    echo "Stopping $num_aggs aggregators..."
-    for ((i=0; i<num_aggs; i++)); do
-        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive bash -c "pkill -9 aggregator" &
-    done
-    wait
-    sleep 1
+    stop_aggregators $num_aggs
     
     # Aggregate results
     echo "  Collecting results..."
