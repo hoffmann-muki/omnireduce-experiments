@@ -240,7 +240,7 @@ stop_aggregators() {
     echo "Stopping $anum aggregators..."
     for ((i=0; i<anum; i++)); do
         local agg_host="${aggregator_ips[$i]}"
-        srun --nodes=1 -w "$agg_host" --exclusive bash -c "pkill -9 aggregator" &
+        srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 bash -c "pkill -9 aggregator" &
     done
     wait
     sleep 1
@@ -273,7 +273,7 @@ run_benchmark() {
     for ((i=0; i<num_aggs; i++)); do
         local agg_host="${agg_ips[$i]}"
         echo "  Starting aggregator on $agg_host"
-        srun --nodes=1 -w "$agg_host" --exclusive \
+        srun --nodes=1 -w "$agg_host" --exclusive --gpus=0 \
             bash -c "pkill -9 aggregator; $OMNIREDUCE_AGG" > aggregator_${i}.log 2>&1 &
     done
     wait
@@ -282,10 +282,10 @@ run_benchmark() {
     # Clean up any stale python processes
     echo "  Cleaning up stale python processes..."
     for ((i=0; i<num_aggs; i++)); do
-        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+        srun --nodes=1 -w "${agg_ips[$i]}" --exclusive --gpus=0 bash -c "pkill -9 python" 2>/dev/null || true
     done
     for ((i=0; i<num_nodes; i++)); do
-        srun --nodes=1 -w "${worker_ips[$i]}" --exclusive bash -c "pkill -9 python" 2>/dev/null || true
+        srun --nodes=1 -w "${worker_ips[$i]}" --exclusive --gpus=0 bash -c "pkill -9 python" 2>/dev/null || true
     done
     sleep 1
     
