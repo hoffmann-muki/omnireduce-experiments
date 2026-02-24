@@ -296,7 +296,7 @@ run_benchmark() {
         for ((local_rank=0; local_rank<gpus_per_node; local_rank++)); do
             echo "  Starting worker rank=$global_rank (node=$node_idx, local_gpu=$local_rank) on $worker_host"
             
-            srun --nodes=1 --ntasks=1 --exclusive -w "$worker_host" \
+            srun --nodes=1 --ntasks=1 --exclusive --gpus-per-task=1 -w "$worker_host" \
                 bash -c "cd $(dirname $BENCHMARK_SCRIPT) && \
                          export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH && \
                          export CUDA_VISIBLE_DEVICES=$local_rank && \
