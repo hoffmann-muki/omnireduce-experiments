@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Parse command-line arguments
 MSG_SIZE_MIB=""
 DENSITY="1.0"
-BACKEND="gloo"
+BACKEND="nccl"
 WARMUP_ITERS=10
 MEASURE_ITERS=100
 while [[ $# -gt 0 ]]; do
@@ -352,7 +352,7 @@ main() {
     fi
     
     # Create root results directory
-    local results_root="./results"
+    local results_root="./results/${BACKEND}"
     mkdir -p "$results_root"
     
     echo "Results will be saved to: $results_root"
