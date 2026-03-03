@@ -126,15 +126,18 @@ echo ""
 start_aggregators() {
     echo "  Starting ${NUM_NODES} aggregators (one per node)..."
     for node in "${NODE_ARR[@]}"; do
+        # Run aggregator as a daemon: nohup + background so ssh returns immediately.
+        # Logging goes to a per-node file; the ssh client exits once the shell
+        # forks the process, leaving the aggregator alive on the remote node.
         ssh "$node" "
             export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
-            $OMNIREDUCE_AGG
-        " > "${RESULT_DIR}/aggregator_${node}.log" 2>&1 &
+            nohup $OMNIREDUCE_AGG >> ${RESULT_DIR}/aggregator_${node}.log 2>&1 &
+            echo \"aggregator PID: \$!\"
+        "
     done
-    wait
-    sleep 3   # give aggregators time to initialize
+    sleep 5   # give aggregators time to bind ports and initialize
 }
 
 # ── Helper: stop aggregators on all nodes ─────────────────────────────────────

@@ -45,11 +45,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Convert MiB to bytes
+# Convert MiB to float32 element count  (1 float = 4 bytes)
 case "$MSG_SIZE_MIB" in
-    256)  TENSOR_SIZE=268435456  ;;
-    512)  TENSOR_SIZE=536870912  ;;
-    1024) TENSOR_SIZE=1073741824 ;;
+    256)  TENSOR_SIZE=67108864   ;;   # 256*1024*1024 / 4
+    512)  TENSOR_SIZE=134217728  ;;
+    1024) TENSOR_SIZE=268435456  ;;
     *) echo "ERROR: --msg-size must be 256, 512, or 1024"; exit 1 ;;
 esac
 
