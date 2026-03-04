@@ -123,7 +123,7 @@ start_aggregators() {
     for node in "${NODE_ARR[@]}"; do
         # Run aggregator as a daemon via srun.
         # nohup + background so srun returns immediately, leaving aggregator alive.
-        srun --nodes=1 --nodelist="$node" --exclusive bash -c "
+        srun --nodes=1 --nodelist="$node" bash -c "
             export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
@@ -132,7 +132,8 @@ start_aggregators() {
             echo \"aggregator PID: \$!\"
         " &
     done
-    sleep 5   # give aggregators time to bind ports and initialize
+    wait   # Wait for all srun aggregator jobs to launch
+    sleep 2   # give aggregators time to bind ports and initialize
 }
 
 # ── Helper: stop aggregators on all nodes ─────────────────────────────────────
@@ -166,7 +167,7 @@ for run_num in 1 2 3; do
         node="${NODE_ARR[$node_idx]}"
         for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
             echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
-            srun --nodes=1 --nodelist="$node" --exclusive bash -c "
+            srun --nodes=1 --nodelist="$node" bash -c "
                 export CUDA_VISIBLE_DEVICES=$local_gpu
                 export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
                 export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH
