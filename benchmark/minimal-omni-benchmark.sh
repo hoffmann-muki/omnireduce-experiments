@@ -97,11 +97,12 @@ declare -a NODE_IPS
 declare -a WORKER_IP_LIST
 for node in "${NODE_ARR[@]}"; do
     # Get the first (primary) IP on the fabric interface
-    node_ip=$(srun --overlap --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null)
+    # Use --ntasks=1 to force single execution (--overlap alone uses all GPU slots)
+    node_ip=$(srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
     if [[ -z "$node_ip" ]]; then
         echo "ERROR: Could not get IP for node $node on interface $FABRIC_IF"
         echo "  Available interfaces on $node:"
-        srun --overlap --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
+        srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
         exit 1
     fi
     NODE_IPS+=("$node_ip")
