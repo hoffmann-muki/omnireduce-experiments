@@ -197,7 +197,7 @@ start_aggregators() {
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
             cd $SCRIPT_DIR
-            nohup $OMNIREDUCE_AGG >> ${RESULT_DIR}/aggregator_${node}.log 2>&1 &
+            nohup stdbuf -oL $OMNIREDUCE_AGG >> ${RESULT_DIR}/aggregator_${node}.log 2>&1 &
             echo \"aggregator PID: \$!\"
         " &
     done
