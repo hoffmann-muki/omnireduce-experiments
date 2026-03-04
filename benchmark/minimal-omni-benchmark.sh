@@ -193,7 +193,10 @@ start_aggregators() {
         # nohup + background so srun returns immediately, leaving aggregator alive.
         # Use --ntasks=1 to force single execution (without it, spawns on all GPU slots)
         srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
-            export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:/usr/lib64:\$LD_LIBRARY_PATH
+            module unload boost 2>/dev/null || true
+            module load boost/gcc/11.3.0
+            export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
+            export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
             cd $SCRIPT_DIR
@@ -238,11 +241,15 @@ for run_num in 1 2 3; do
             echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
             # Use --ntasks=1 to launch exactly one task per worker
             srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
+                module unload boost 2>/dev/null || true
+                module load boost/gcc/11.3.0
                 export CUDA_VISIBLE_DEVICES=$local_gpu
                 export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
-                export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
+                export PYTHONUNBUFFERED=1
+                export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
+                export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
                 cd $SCRIPT_DIR
-                $CONDA_PYTHON benchmark.py \
+                $CONDA_PYTHON -u benchmark.py \
                     --backend $BACKEND \
                     --tensor-size $TENSOR_SIZE \
                     --block-size $BLOCK_SIZE \
