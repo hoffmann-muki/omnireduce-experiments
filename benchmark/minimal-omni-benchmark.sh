@@ -60,12 +60,6 @@ case "$MSG_SIZE_MIB" in
     *) echo "ERROR: --msg-size must be 256, 512, or 1024"; exit 1 ;;
 esac
 
-# ── Validate omnireduce.cfg ────────────────────────────────────────────────────
-if [[ ! -f "${SCRIPT_DIR}/omnireduce.cfg" ]]; then
-    echo "ERROR: omnireduce.cfg not found in $SCRIPT_DIR"
-    exit 1
-fi
-
 # ── Auto-detect SLURM allocation ──────────────────────────────────────────────
 if [[ -z "$SLURM_NODELIST" ]]; then
     echo "ERROR: Not inside a SLURM allocation. Run salloc or sbatch first."
@@ -94,6 +88,75 @@ if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
     [[ -z "$GLOO_SOCKET_IFNAME" ]] && GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
     export GLOO_SOCKET_IFNAME
 fi
+
+# ── Collect InfiniBand IPs from all nodes and generate dynamic omnireduce.cfg ──
+echo "Collecting InfiniBand IPs from all nodes..."
+# Use the detected fabric interface; if none found, try ib0 (InfiniBand default)
+FABRIC_IF=${GLOO_SOCKET_IFNAME:-ib0}
+declare -a NODE_IPS
+declare -a WORKER_IP_LIST
+for node in "${NODE_ARR[@]}"; do
+    # Get the first (primary) IP on the fabric interface
+    node_ip=$(srun --overlap --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null)
+    if [[ -z "$node_ip" ]]; then
+        echo "ERROR: Could not get IP for node $node on interface $FABRIC_IF"
+        echo "  Available interfaces on $node:"
+        srun --overlap --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
+        exit 1
+    fi
+    NODE_IPS+=("$node_ip")
+    # Each node has GPUS_PER_NODE workers, all with the same IP
+    for ((i=0; i<GPUS_PER_NODE; i++)); do
+        WORKER_IP_LIST+=("$node_ip")
+    done
+    echo "  Node $node: $node_ip"
+done
+
+# Build comma-separated lists
+# Use printf to join arrays more robustly than IFS trick
+AGGREGATOR_IPS=""
+for ip in "${NODE_IPS[@]}"; do
+    AGGREGATOR_IPS="${AGGREGATOR_IPS}${ip},"
+done
+AGGREGATOR_IPS="${AGGREGATOR_IPS%,}"  # Remove trailing comma
+
+WORKER_IPS=""
+for ip in "${WORKER_IP_LIST[@]}"; do
+    WORKER_IPS="${WORKER_IPS}${ip},"
+done
+WORKER_IPS="${WORKER_IPS%,}"  # Remove trailing comma
+
+echo "  Aggregator IPs: $AGGREGATOR_IPS"
+echo "  Worker IPs: $WORKER_IPS"
+
+# Generate dynamic omnireduce.cfg based on SLURM allocation
+OMNIREDUCE_CFG="${SCRIPT_DIR}/omnireduce.cfg"
+cat > "$OMNIREDUCE_CFG" <<EOF
+[omnireduce]
+num_workers = $TOTAL_WORKERS
+num_aggregators = $NUM_NODES
+num_threads = 8
+worker_cores = -1,-1,-1,-1,-1,-1,-1,-1
+aggregator_cores = -1,-1,-1,-1,-1,-1,-1,-1
+threshold = 0.0
+buffer_size = 1024
+chunk_size = 1048576
+bitmap_chunk_size = 16777216
+message_size = 256
+block_size = 256
+ib_hca = mlx5_0
+ib_port = 1
+gid_idx = 2
+sl = 2
+gpu_devId = 0
+direct_memory = 1
+adaptive_blocksize = 0
+tcp_port = 19875
+worker_ips = $WORKER_IPS
+aggregator_ips = $AGGREGATOR_IPS
+EOF
+
+echo "  Generated omnireduce.cfg"
 
 # ── Result directory ───────────────────────────────────────────────────────────
 RESULT_DIR="${SCRIPT_DIR}/results/omnireduce/node_${NUM_NODES}/msgsize_${MSG_SIZE_MIB}MiB/density_${DENSITY}"
