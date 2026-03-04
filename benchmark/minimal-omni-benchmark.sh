@@ -25,9 +25,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONDA_PYTHON=${CONDA_PYTHON:-python}
 
 # OmniReduce paths (override via env vars if needed)
-OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/omnireduce}
-OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/pscratch/sd/h/hmuki/omnireduce/omnireduce-RDMA/example/aggregator}
-OMNIREDUCE_AGG_LD="$OMNIREDUCE_BUILD:/usr/lib/shifter/mpich-1.1/dep:/usr/lib64:/opt/cray/libfabric/1.22.0/lib64"
+OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/omnireduce/build}
+OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/example/aggregator}
+OMNIREDUCE_AGG_LD="$OMNIREDUCE_BUILD:/lib64"
 
 # OmniReduce always uses gloo backend
 BACKEND=gloo
@@ -86,8 +86,10 @@ TOTAL_WORKERS=$(( NUM_NODES * GPUS_PER_NODE ))
 
 # ── Auto-detect network interface ─────────────────────────────────────────────
 if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
-    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
-    [[ -z "$GLOO_SOCKET_IFNAME" ]] && GLOO_SOCKET_IFNAME=nmn0
+    # Prefer high-speed fabric (ib*, cxi*, mlx*) over management networks
+    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2}' | grep -E "^(ib|cxi|mlx)" | head -1)
+    # Fall back to any non-loopback interface if no fabric interface found
+    [[ -z "$GLOO_SOCKET_IFNAME" ]] && GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
     export GLOO_SOCKET_IFNAME
 fi
 
