@@ -59,8 +59,10 @@ def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_tim
             data[i] += tmp[i]
     return data
 
-def benchmark(rank, world_size, tensorsize, blocksize, density, check):
-    local_rank = 0
+def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100):
+    # Determine local rank (GPU index on this node)
+    # First try SLURM_LOCALID, fall back to 0
+    local_rank = int(os.environ.get('SLURM_LOCALID', '0'))
     torch.cuda.set_device(local_rank)
     mydevice = torch.device("cuda", local_rank)
     begin = time.time()
@@ -77,7 +79,7 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check):
     localtime = numpy.zeros(1)
     globaltime = numpy.zeros(1)
     #Warm up
-    for step in range(10):
+    for step in range(warmup_iters):
         sys.stdout.flush()
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
         tensor = tensor_data.clone()
@@ -85,21 +87,28 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check):
     print("Warm up over")
     sys.stdout.flush()
     allreduce_times = 0
-    for step in range(100):
-        localtime = numpy.zeros(1)
-        globaltime = numpy.zeros(1)
+    for step in range(measure_iters):
         if step%1==0:
             allreduce_times = 0
             tensor = tensor_data.clone()
+        
+        # Pre-barrier (not timed)
+        dist.barrier(group=group)
         torch.cuda.synchronize()
-        allreduce_times += 1
+        
+        # Timer 1: all_reduce only
         begin = time.time()
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM, group=group)
         torch.cuda.synchronize()
-        localtime[0] = int((time.time()-begin)*1000000)
-        globaltime[0]=localtime[0]
-        if rank>=0:
-            print("time:"+str(globaltime[0])+";")
+        time_only = int((time.time() - begin) * 1000000)
+        
+        # Post-barrier and compute total time
+        dist.barrier(group=group)
+        time_with_barrier = int((time.time() - begin) * 1000000)
+        
+        allreduce_times += 1
+        if rank >= 0:
+            print(f"time_only:{time_only};time_with_barrier:{time_with_barrier};")
             sys.stdout.flush()
 
     if rank==0 and check==1:
@@ -131,12 +140,14 @@ def main():
     parser.add_argument('--tensor-size', '-t', type=int, default=26214400)
     parser.add_argument('--block-size', '-b', type=int, default=256)
     parser.add_argument('--density', '-d', type=float, default=1.0)
-    parser.add_argument('--rank', '-r', type=int)
-    parser.add_argument('--size', '-s', type=int)
+    parser.add_argument('--rank', '-r', type=int, required=True)
+    parser.add_argument('--size', '-s', type=int, required=True)
     parser.add_argument('--check', '-c', type=int, default=0)
+    parser.add_argument('--warmup-iters', type=int, default=10, help='Number of warmup iterations')
+    parser.add_argument('--measure-iters', type=int, default=100, help='Number of measurement iterations')
     args = parser.parse_args()
     initialize(args.backend, args.rank, args.size, args.ip, args.port, args.tensor_size, args.block_size, args.density)
-    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check)
+    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check, args.warmup_iters, args.measure_iters)
 
 if __name__ == '__main__':
     main()

@@ -27,7 +27,9 @@ CONDA_PYTHON=${CONDA_PYTHON:-python}
 # OmniReduce paths (override via env vars if needed)
 OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/omnireduce/build}
 OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/example/aggregator}
-OMNIREDUCE_AGG_LD="$OMNIREDUCE_BUILD:/lib64"
+# GCC lib must come first for correct libstdc++, then omnireduce and system libs
+GCC_LIBDIR=$(dirname "$(gcc -print-file-name=libstdc++.so)")
+OMNIREDUCE_AGG_LD="$GCC_LIBDIR:$OMNIREDUCE_BUILD:/lib64"
 
 # OmniReduce always uses gloo backend
 BACKEND=gloo
