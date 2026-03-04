@@ -193,6 +193,7 @@ start_aggregators() {
         # nohup + background so srun returns immediately, leaving aggregator alive.
         # Use --ntasks=1 to force single execution (without it, spawns on all GPU slots)
         srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
+            module load rdma-core/gcc/11.3.0/zen2 2>/dev/null || module load rdma-core/gcc/11.3.0
             export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
