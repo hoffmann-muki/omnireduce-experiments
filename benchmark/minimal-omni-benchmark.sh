@@ -93,13 +93,6 @@ if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
     export GLOO_SOCKET_IFNAME
 fi
 
-# ── Distribute omnireduce.cfg to all nodes ────────────────────────────────────
-echo "Distributing omnireduce.cfg to all nodes..."
-for node in "${NODE_ARR[@]}"; do
-    srun --nodes=1 --nodelist="$node" bash -c "cp ${SCRIPT_DIR}/omnireduce.cfg ${SCRIPT_DIR}/omnireduce.cfg" 2>/dev/null || true &
-done
-wait
-
 # ── Result directory ───────────────────────────────────────────────────────────
 RESULT_DIR="${SCRIPT_DIR}/results/omnireduce/node_${NUM_NODES}/msgsize_${MSG_SIZE_MIB}MiB/density_${DENSITY}"
 mkdir -p "$RESULT_DIR"
