@@ -258,7 +258,8 @@ for run_num in 1 2 3; do
                     --size $TOTAL_WORKERS \
                     --ip $COORD_IP \
                     --warmup-iters $WARMUP_ITERS \
-                    --measure-iters $MEASURE_ITERS
+                    --measure-iters $MEASURE_ITERS \
+                    --sparsity-type elementwise
             " > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
             global_rank=$(( global_rank + 1 ))
         done

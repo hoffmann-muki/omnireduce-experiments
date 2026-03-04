@@ -10,7 +10,8 @@ import sys
 import os
 initvalue = 0.01
 
-def gen_data(rank, tensorsize, blocksize, density):
+def gen_data_blockwise(rank, tensorsize, blocksize, density):
+    """Generate tensor with block-wise sparsity: entire blocks are selected as non-zero."""
     blocknum = int(tensorsize/blocksize)
     if rank==-1:
         nonzero_bnum=0
@@ -26,7 +27,21 @@ def gen_data(rank, tensorsize, blocksize, density):
             idx += 1
     return data
 
+def gen_data_elementwise(rank, tensorsize, blocksize, density):
+    """Generate tensor with element-wise sparsity: individual elements are selected as non-zero."""
+    if rank==-1:
+        nonzero_enum = 0
+    else:
+        nonzero_enum = int(tensorsize*density)
+    random.seed(rank)
+    nonzero_indices = random.sample(range(tensorsize), nonzero_enum)
+    data = [0.0]*tensorsize
+    for idx in nonzero_indices:
+        data[idx] = initvalue
+    return data
+
 def gen_data_nonoverlap(rank, worldsize, tensorsize, blocksize, density):
+    """Generate tensor with block-wise sparsity and non-overlapping sparse regions across ranks."""
     blocknum = int(tensorsize/blocksize)
     if rank==-1:
         nonzero_bnum=0
@@ -51,22 +66,24 @@ def check_density(tensor, blocksize, tensorsize):
         i += blocksize
     return nonzeronum
 
-def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_times):
+def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_times, sparsity_type='blockwise'):
     data = [0.0 for i in range(tensorsize)]
+    gen_func = gen_data_blockwise if sparsity_type == 'blockwise' else gen_data_elementwise
     for rank in range(worldsize):
-        tmp = gen_data(rank, tensorsize, blocksize, density)
+        tmp = gen_func(rank, tensorsize, blocksize, density)
         for i in range(tensorsize):
             data[i] += tmp[i]
     return data
 
-def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100):
+def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100, sparsity_type='blockwise'):
     # Determine local rank (GPU index on this node)
     # First try SLURM_LOCALID, fall back to 0
     local_rank = int(os.environ.get('SLURM_LOCALID', '0'))
     torch.cuda.set_device(local_rank)
     mydevice = torch.device("cuda", local_rank)
     begin = time.time()
-    data = gen_data(rank, tensorsize, blocksize, density) # random overlap
+    gen_func = gen_data_blockwise if sparsity_type == 'blockwise' else gen_data_elementwise
+    data = gen_func(rank, tensorsize, blocksize, density) # random overlap
     #data = gen_data(0, tensorsize, blocksize, density) # all overlap
     #data = gen_data_nonoverlap(rank, world_size, tensorsize, blocksize, density) # non-overlap
     tensor_data = torch.FloatTensor(data).cuda(device=mydevice)
@@ -114,7 +131,7 @@ def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_it
     if rank==0 and check==1:
         print("final check:")
         print("gen expected result...")
-        expected = get_expected_result(world_size, tensorsize, blocksize, density, allreduce_times)
+        expected = get_expected_result(world_size, tensorsize, blocksize, density, allreduce_times, sparsity_type)
         tensor = tensor.cpu().data.numpy()
         torch.cuda.synchronize() 
         result_value = initvalue*pow(2,allreduce_times)
@@ -145,9 +162,10 @@ def main():
     parser.add_argument('--check', '-c', type=int, default=0)
     parser.add_argument('--warmup-iters', type=int, default=10, help='Number of warmup iterations')
     parser.add_argument('--measure-iters', type=int, default=100, help='Number of measurement iterations')
+    parser.add_argument('--sparsity-type', type=str, default='elementwise', choices=['elementwise', 'blockwise'], help='Sparsity pattern: elementwise (each element independent) or blockwise (blocks of elements)')
     args = parser.parse_args()
     initialize(args.backend, args.rank, args.size, args.ip, args.port, args.tensor_size, args.block_size, args.density)
-    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check, args.warmup_iters, args.measure_iters)
+    benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check, args.warmup_iters, args.measure_iters, args.sparsity_type)
 
 if __name__ == '__main__':
     main()
