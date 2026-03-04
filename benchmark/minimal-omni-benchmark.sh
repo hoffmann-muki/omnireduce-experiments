@@ -96,7 +96,7 @@ fi
 # ── Distribute omnireduce.cfg to all nodes ────────────────────────────────────
 echo "Distributing omnireduce.cfg to all nodes..."
 for node in "${NODE_ARR[@]}"; do
-    scp "${SCRIPT_DIR}/omnireduce.cfg" "${node}:${SCRIPT_DIR}/omnireduce.cfg" 2>/dev/null || true &
+    srun --nodes=1 --nodelist="$node" bash -c "cp ${SCRIPT_DIR}/omnireduce.cfg ${SCRIPT_DIR}/omnireduce.cfg" 2>/dev/null || true &
 done
 wait
 
@@ -128,17 +128,16 @@ echo ""
 start_aggregators() {
     echo "  Starting ${NUM_NODES} aggregators (one per node)..."
     for node in "${NODE_ARR[@]}"; do
-        # Run aggregator as a daemon: nohup + background so ssh returns immediately.
-        # Logging goes to a per-node file; the ssh client exits once the shell
-        # forks the process, leaving the aggregator alive on the remote node.
-        ssh "$node" "
+        # Run aggregator as a daemon via srun.
+        # nohup + background so srun returns immediately, leaving aggregator alive.
+        srun --nodes=1 --nodelist="$node" --exclusive bash -c "
             export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
             cd $SCRIPT_DIR
             nohup $OMNIREDUCE_AGG >> ${RESULT_DIR}/aggregator_${node}.log 2>&1 &
             echo \"aggregator PID: \$!\"
-        "
+        " &
     done
     sleep 5   # give aggregators time to bind ports and initialize
 }
@@ -147,7 +146,7 @@ start_aggregators() {
 stop_aggregators() {
     echo "  Stopping aggregators..."
     for node in "${NODE_ARR[@]}"; do
-        ssh "$node" "pkill -9 aggregator" 2>/dev/null || true &
+        srun --nodes=1 --nodelist="$node" bash -c "pkill -9 aggregator" 2>/dev/null || true &
     done
     wait
     sleep 1
@@ -161,7 +160,7 @@ for run_num in 1 2 3; do
 
     # Kill stale python processes
     for node in "${NODE_ARR[@]}"; do
-        ssh "$node" "pkill -9 python" 2>/dev/null || true &
+        srun --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
     done
     wait
     sleep 1
@@ -174,7 +173,7 @@ for run_num in 1 2 3; do
         node="${NODE_ARR[$node_idx]}"
         for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
             echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
-            ssh "$node" "
+            srun --nodes=1 --nodelist="$node" --exclusive bash -c "
                 export CUDA_VISIBLE_DEVICES=$local_gpu
                 export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
                 export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH
