@@ -163,7 +163,13 @@ def main():
     parser.add_argument('--warmup-iters', type=int, default=10, help='Number of warmup iterations')
     parser.add_argument('--measure-iters', type=int, default=100, help='Number of measurement iterations')
     parser.add_argument('--sparsity-type', type=str, default='elementwise', choices=['elementwise', 'blockwise'], help='Sparsity pattern: elementwise (each element independent) or blockwise (blocks of elements)')
+    parser.add_argument('--nccl-socket-ifname', type=str, default='', help='Network interface to use for NCCL communication (e.g., ib0)')
     args = parser.parse_args()
+    
+    # Set NCCL socket interface if using nccl backend and ifname is provided
+    if args.backend == 'nccl' and args.nccl_socket_ifname:
+        os.environ['NCCL_SOCKET_IFNAME'] = args.nccl_socket_ifname
+    
     initialize(args.backend, args.rank, args.size, args.ip, args.port, args.tensor_size, args.block_size, args.density)
     benchmark(args.rank, args.size, args.tensor_size, args.block_size, args.density, args.check, args.warmup_iters, args.measure_iters, args.sparsity_type)
 

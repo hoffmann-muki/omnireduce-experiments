@@ -7,11 +7,12 @@
 #   ./minimal-omni-benchmark.sh [OPTIONS]
 #
 # Options:
-#   --msg-size MiB    Message size: 256, 512, or 1024 (default: 256)
-#   --density FLOAT   Tensor density 0.0-1.0 (default: 0.05)
-#   --warmup ITERS    Warmup iterations (default: 5)
-#   --measure ITERS   Measurement iterations (default: 20)
-#   --help            Show this help message
+#   --msg-size MiB      Message size: 256, 512, or 1024 (default: 256)
+#   --density FLOAT     Tensor density 0.0-1.0 (default: 0.05)
+#   --warmup ITERS      Warmup iterations (default: 5)
+#   --measure ITERS     Measurement iterations (default: 20)
+#   --backend BACKEND   Collective backend: gloo (sparse via OmniReduce) or nccl (all-GPU) (default: gloo)
+#   --help              Show this help message
 #
 # Prerequisites:
 #   - Running inside a SLURM allocation (salloc or sbatch)
@@ -31,11 +32,9 @@ OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/home/hoffmuki/scratch/omnireduce/omnireduce-RD
 GCC_LIBDIR=$(dirname "$(gcc -print-file-name=libstdc++.so)")
 OMNIREDUCE_AGG_LD="$GCC_LIBDIR:$OMNIREDUCE_BUILD:/lib64"
 
-# OmniReduce always uses gloo backend
+# Defaults
 BACKEND=gloo
 BLOCK_SIZE=256
-
-# Defaults
 MSG_SIZE_MIB=256
 DENSITY=0.05
 WARMUP_ITERS=5
@@ -47,10 +46,17 @@ while [[ $# -gt 0 ]]; do
         --density)   DENSITY="$2";       shift 2 ;;
         --warmup)    WARMUP_ITERS="$2";  shift 2 ;;
         --measure)   MEASURE_ITERS="$2"; shift 2 ;;
-        --help)      grep "^#" "$0" | head -22; exit 0 ;;
+        --backend)   BACKEND="$2";       shift 2 ;;
+        --help)      grep "^#" "$0" | head -24; exit 0 ;;
         *) echo "ERROR: Unknown argument: $1"; exit 1 ;;
     esac
 done
+
+# Validate backend choice
+if [[ "$BACKEND" != "gloo" && "$BACKEND" != "nccl" ]]; then
+    echo "ERROR: --backend must be 'gloo' or 'nccl', got: $BACKEND"
+    exit 1
+fi
 
 # Convert MiB to bytes (float count, float = 4 bytes)
 case "$MSG_SIZE_MIB" in
@@ -79,17 +85,8 @@ fi
 
 TOTAL_WORKERS=$(( NUM_NODES * GPUS_PER_NODE ))
 
-# ── Auto-detect network interface ─────────────────────────────────────────────
-if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
-    # Prefer high-speed fabric (ib*, cxi*, mlx*) over management networks
-    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2}' | grep -E "^(ib|cxi|mlx)" | head -1)
-    # Fall back to any non-loopback interface if no fabric interface found
-    [[ -z "$GLOO_SOCKET_IFNAME" ]] && GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
-    export GLOO_SOCKET_IFNAME
-fi
-
-# ── Collect InfiniBand IPs from all nodes and generate dynamic omnireduce.cfg ──
-echo "Collecting InfiniBand IPs from all nodes..."
+# ── Collect interface IPs from all nodes for both backends ──────────
+echo "Collecting IPs from all nodes on interface: ${GLOO_SOCKET_IFNAME:-auto-detected}..."
 # Use the detected fabric interface; if none found, try ib0 (InfiniBand default)
 FABRIC_IF=${GLOO_SOCKET_IFNAME:-ib0}
 declare -a NODE_IPS
@@ -112,11 +109,10 @@ for node in "${NODE_ARR[@]}"; do
     echo "  Node $node: $node_ip"
 done
 
-# Set coordinator IP to first aggregator node's InfiniBand IP (gloo needs IP, not hostname)
+# Set coordinator IP to first node's IP as both gloo and nccl need this for initialization
 COORD_IP="${NODE_IPS[0]}"
 
-# Build comma-separated lists
-# Use printf to join arrays more robustly than IFS trick
+# Build comma-separated lists for omnireduce.cfg
 AGGREGATOR_IPS=""
 for ip in "${NODE_IPS[@]}"; do
     AGGREGATOR_IPS="${AGGREGATOR_IPS}${ip},"
@@ -129,12 +125,14 @@ for ip in "${WORKER_IP_LIST[@]}"; do
 done
 WORKER_IPS="${WORKER_IPS%,}"  # Remove trailing comma
 
-echo "  Aggregator IPs: $AGGREGATOR_IPS"
-echo "  Worker IPs: $WORKER_IPS"
+echo "  Coordinator IP: $COORD_IP"
 
-# Generate dynamic omnireduce.cfg based on SLURM allocation
-OMNIREDUCE_CFG="${SCRIPT_DIR}/omnireduce.cfg"
-cat > "$OMNIREDUCE_CFG" <<EOF
+# Generate dynamic omnireduce.cfg if using gloo backend since nccl doesn't need aggregators
+if [[ "$BACKEND" == "gloo" ]]; then
+    echo "  Aggregator IPs: $AGGREGATOR_IPS"
+    echo "  Worker IPs: $WORKER_IPS"
+    OMNIREDUCE_CFG="${SCRIPT_DIR}/omnireduce.cfg"
+    cat > "$OMNIREDUCE_CFG" <<EOF
 [omnireduce]
 num_workers = $TOTAL_WORKERS
 num_aggregators = $NUM_NODES
@@ -158,11 +156,11 @@ tcp_port = 19875
 worker_ips = $WORKER_IPS
 aggregator_ips = $AGGREGATOR_IPS
 EOF
-
-echo "  Generated omnireduce.cfg"
+    echo "  Generated omnireduce.cfg"
+fi
 
 # ── Result directory ───────────────────────────────────────────────────────────
-RESULT_DIR="${SCRIPT_DIR}/results/omnireduce/node_${NUM_NODES}/msgsize_${MSG_SIZE_MIB}MiB/density_${DENSITY}"
+RESULT_DIR="${SCRIPT_DIR}/results/${BACKEND}/node_${NUM_NODES}/msgsize_${MSG_SIZE_MIB}MiB/density_${DENSITY}"
 mkdir -p "$RESULT_DIR"
 CSV_FILE="${RESULT_DIR}/summary.csv"
 if [[ ! -f "$CSV_FILE" ]]; then
@@ -170,18 +168,25 @@ if [[ ! -f "$CSV_FILE" ]]; then
 fi
 
 # ── Print config ───────────────────────────────────────────────────────────────
-echo "Minimal OmniReduce Benchmark"
-echo "============================"
+echo "Collective Benchmark"
+echo "===================="
 echo "  Nodes           : $NUM_NODES  (${NODE_ARR[*]})"
 echo "  GPUs/node        : $GPUS_PER_NODE"
 echo "  Total workers    : $TOTAL_WORKERS"
 echo "  Coordinator IP   : $COORD_IP"
-echo "  Backend          : $BACKEND (gloo via OmniReduce)"
+echo "  Backend          : $BACKEND"
+if [[ "$BACKEND" == "gloo" ]]; then
+    echo "  Backend mode     : Sparse collective via OmniReduce aggregators"
+else
+    echo "  Backend mode     : All-GPU collective with no aggregators"
+fi
 echo "  Message size     : ${MSG_SIZE_MIB} MiB  ($TENSOR_SIZE floats)"
 echo "  Density          : $DENSITY"
 echo "  Warmup / measure : $WARMUP_ITERS / $MEASURE_ITERS"
 echo "  GLOO_SOCKET_IFNAME: $GLOO_SOCKET_IFNAME"
-echo "  Aggregator binary: $OMNIREDUCE_AGG"
+if [[ "$BACKEND" == "gloo" ]]; then
+    echo "  Aggregator binary: $OMNIREDUCE_AGG"
+fi
 echo "  Results dir      : $RESULT_DIR"
 echo ""
 
@@ -231,7 +236,9 @@ for run_num in 1 2 3; do
     wait
     sleep 1
 
-    start_aggregators
+    if [[ "$BACKEND" == "gloo" ]]; then
+        start_aggregators
+    fi
 
     # Launch one worker per GPU across all nodes
     global_rank=0
@@ -259,7 +266,8 @@ for run_num in 1 2 3; do
                     --ip $COORD_IP \
                     --warmup-iters $WARMUP_ITERS \
                     --measure-iters $MEASURE_ITERS \
-                    --sparsity-type elementwise
+                    --sparsity-type elementwise \
+                    --nccl-socket-ifname $GLOO_SOCKET_IFNAME
             " > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
             global_rank=$(( global_rank + 1 ))
         done
@@ -267,7 +275,9 @@ for run_num in 1 2 3; do
 
     echo "  Waiting for all workers..."
     wait
-    stop_aggregators
+    if [[ "$BACKEND" == "gloo" ]]; then
+        stop_aggregators
+    fi
     echo "  Run $run_num complete."
 done
 
