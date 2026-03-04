@@ -25,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONDA_PYTHON=${CONDA_PYTHON:-python}
 
 # OmniReduce paths (override via env vars if needed)
-OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/omnireduce/build}
+OMNIREDUCE_BUILD=${OMNIREDUCE_BUILD:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/omnireduce}
 OMNIREDUCE_AGG=${OMNIREDUCE_AGG:-/home/hoffmuki/scratch/omnireduce/omnireduce-RDMA/example/aggregator}
 # GCC lib must come first for correct libstdc++, then omnireduce and system libs
 GCC_LIBDIR=$(dirname "$(gcc -print-file-name=libstdc++.so)")
@@ -193,7 +193,7 @@ start_aggregators() {
         # nohup + background so srun returns immediately, leaving aggregator alive.
         # Use --ntasks=1 to force single execution (without it, spawns on all GPU slots)
         srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
-            export LD_LIBRARY_PATH=/usr/lib64:${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
+            export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:/usr/lib64:\$LD_LIBRARY_PATH
             export CUDA_VISIBLE_DEVICES=''
             pkill -9 aggregator 2>/dev/null || true
             cd $SCRIPT_DIR
@@ -240,7 +240,7 @@ for run_num in 1 2 3; do
             srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
                 export CUDA_VISIBLE_DEVICES=$local_gpu
                 export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
-                export LD_LIBRARY_PATH=${OMNIREDUCE_BUILD}:\$LD_LIBRARY_PATH
+                export LD_LIBRARY_PATH=${OMNIREDUCE_AGG_LD}:\$LD_LIBRARY_PATH
                 cd $SCRIPT_DIR
                 $CONDA_PYTHON benchmark.py \
                     --backend $BACKEND \
