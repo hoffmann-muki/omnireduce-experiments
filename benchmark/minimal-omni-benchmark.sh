@@ -267,7 +267,7 @@ for run_num in 1 2 3; do
                     --warmup-iters $WARMUP_ITERS \
                     --measure-iters $MEASURE_ITERS \
                     --sparsity-type elementwise \
-                    --nccl-socket-ifname $GLOO_SOCKET_IFNAME
+                    $(if [[ -n \"$GLOO_SOCKET_IFNAME\" ]]; then echo \"--nccl-socket-ifname $GLOO_SOCKET_IFNAME\"; fi)
             " > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
             global_rank=$(( global_rank + 1 ))
         done
