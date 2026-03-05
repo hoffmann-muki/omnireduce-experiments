@@ -92,21 +92,13 @@ FABRIC_IF=${GLOO_SOCKET_IFNAME:-ib0}
 declare -a NODE_IPS
 declare -a WORKER_IP_LIST
 for node in "${NODE_ARR[@]}"; do
-    # Get the first (primary) IP on the fabric interface
-    # For NCCL: use ssh; for gloo: use srun
-    if [[ "$BACKEND" == "nccl" ]]; then
-        node_ip=$(ssh "$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
-    else
-        node_ip=$(srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
-    fi
+    # Get the first (primary) IP on the fabric interface via srun
+    # Use --ntasks=1 to force single execution (--overlap alone uses all GPU slots)
+    node_ip=$(srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
     if [[ -z "$node_ip" ]]; then
         echo "ERROR: Could not get IP for node $node on interface $FABRIC_IF"
         echo "  Available interfaces on $node:"
-        if [[ "$BACKEND" == "nccl" ]]; then
-            ssh "$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
-        else
-            srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
-        fi
+        srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
         exit 1
     fi
     NODE_IPS+=("$node_ip")
@@ -243,13 +235,9 @@ for run_num in 1 2 3; do
     mkdir -p "$RUN_DIR"
     echo "---- Run $run_num/3 ----"
 
-    # Kill stale python processes (ssh for NCCL, srun for gloo)
+    # Kill stale python processes
     for node in "${NODE_ARR[@]}"; do
-        if [[ "$BACKEND" == "nccl" ]]; then
-            ssh "$node" bash -c "pkill -9 python" 2>/dev/null || true &
-        else
-            srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
-        fi
+        srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
     done
     wait
     sleep 1
@@ -259,43 +247,55 @@ for run_num in 1 2 3; do
     fi
 
     # Launch one worker per GPU across all nodes
-    # For NCCL: use ssh (sequential, rank 0 binds listener first, then others connect)
-    # For gloo: use srun (native SLURM integration)
     global_rank=0
+    
+    # Build the worker command (same for both backends)
+    build_worker_cmd() {
+        local rank=$1
+        echo "
+            module unload boost 2>/dev/null || true
+            module load boost/gcc/11.3.0
+            export CUDA_VISIBLE_DEVICES=$2
+            export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
+            [[ -n '$GLOO_SOCKET_IFNAME' ]] && export NCCL_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
+            # For NCCL: allow extra time for initialization and handle errors gracefully
+            export NCCL_INIT_TIMEOUT=300
+            export NCCL_ASYNC_ERROR_HANDLING=1
+            export PYTHONUNBUFFERED=1
+            export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
+            export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
+            cd $SCRIPT_DIR
+            $CONDA_PYTHON -u benchmark.py \
+                --backend $BACKEND \
+                --tensor-size $TENSOR_SIZE \
+                --block-size $BLOCK_SIZE \
+                --density $DENSITY \
+                --rank $rank \
+                --size $TOTAL_WORKERS \
+                --ip $COORD_IP \
+                --warmup-iters $WARMUP_ITERS \
+                --measure-iters $MEASURE_ITERS \
+                --sparsity-type elementwise
+        "
+    }
+    
     for ((node_idx=0; node_idx<NUM_NODES; node_idx++)); do
         node="${NODE_ARR[$node_idx]}"
         for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
             echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
             
-            # Build the worker command (same for both ssh and srun)
-            worker_cmd="
-                module unload boost 2>/dev/null || true
-                module load boost/gcc/11.3.0
-                export CUDA_VISIBLE_DEVICES=$local_gpu
-                export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
-                [[ -n '$GLOO_SOCKET_IFNAME' ]] && export NCCL_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
-                export PYTHONUNBUFFERED=1
-                export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
-                export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
-                cd $SCRIPT_DIR
-                $CONDA_PYTHON -u benchmark.py \
-                    --backend $BACKEND \
-                    --tensor-size $TENSOR_SIZE \
-                    --block-size $BLOCK_SIZE \
-                    --density $DENSITY \
-                    --rank $global_rank \
-                    --size $TOTAL_WORKERS \
-                    --ip $COORD_IP \
-                    --warmup-iters $WARMUP_ITERS \
-                    --measure-iters $MEASURE_ITERS \
-                    --sparsity-type elementwise
-            "
+            worker_cmd=$(build_worker_cmd $global_rank $local_gpu)
             
-            if [[ "$BACKEND" == "nccl" ]]; then
-                # For NCCL: use ssh for sequential launching (rank 0 binds listener first)
-                ssh "$node" bash -c "$worker_cmd" > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+            # For NCCL: launch rank 0 first, wait for it to bind listener, then launch others
+            # For gloo: launch all concurrently (OmniReduce aggregators handle coordination)
+            if [[ "$BACKEND" == "nccl" && $global_rank -eq 0 ]]; then
+                # Rank 0: block until it establishes the socket listener
+                echo "    [NCCL rank 0] Launching and waiting for socket listener..."
+                srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
+                    > "${RUN_DIR}/worker_${global_rank}.log" 2>&1
+                sleep 1  # Give rank 0 time to bind listener
             else
-                # For gloo: use srun for SLURM integration
+                # All other ranks (or all ranks for gloo): launch concurrently in background
                 srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
                     > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
             fi
