@@ -229,12 +229,6 @@ for run_num in 1 2 3; do
     mkdir -p "$RUN_DIR"
     echo "---- Run $run_num/3 ----"
 
-# ── Run 3 times, pool timings, compute stats ──────────────────────────────────
-for run_num in 1 2 3; do
-    RUN_DIR="${RESULT_DIR}/run_${run_num}"
-    mkdir -p "$RUN_DIR"
-    echo "---- Run $run_num/3 ----"
-
     # Kill stale python processes
     for node in "${NODE_ARR[@]}"; do
         srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
