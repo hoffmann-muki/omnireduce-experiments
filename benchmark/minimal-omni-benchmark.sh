@@ -93,12 +93,20 @@ declare -a NODE_IPS
 declare -a WORKER_IP_LIST
 for node in "${NODE_ARR[@]}"; do
     # Get the first (primary) IP on the fabric interface
-    # Use --ntasks=1 to force single execution (--overlap alone uses all GPU slots)
-    node_ip=$(srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
+    # For NCCL: use ssh; for gloo: use srun
+    if [[ "$BACKEND" == "nccl" ]]; then
+        node_ip=$(ssh "$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
+    else
+        node_ip=$(srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show $FABRIC_IF 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\n')
+    fi
     if [[ -z "$node_ip" ]]; then
         echo "ERROR: Could not get IP for node $node on interface $FABRIC_IF"
         echo "  Available interfaces on $node:"
-        srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
+        if [[ "$BACKEND" == "nccl" ]]; then
+            ssh "$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
+        else
+            srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "ip -o -4 addr show | grep -v 127.0.0.1" 2>/dev/null | sed 's/^/    /'
+        fi
         exit 1
     fi
     NODE_IPS+=("$node_ip")
@@ -229,9 +237,19 @@ for run_num in 1 2 3; do
     mkdir -p "$RUN_DIR"
     echo "---- Run $run_num/3 ----"
 
-    # Kill stale python processes
+# ── Run 3 times, pool timings, compute stats ──────────────────────────────────
+for run_num in 1 2 3; do
+    RUN_DIR="${RESULT_DIR}/run_${run_num}"
+    mkdir -p "$RUN_DIR"
+    echo "---- Run $run_num/3 ----"
+
+    # Kill stale python processes (ssh for NCCL, srun for gloo)
     for node in "${NODE_ARR[@]}"; do
-        srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
+        if [[ "$BACKEND" == "nccl" ]]; then
+            ssh "$node" bash -c "pkill -9 python" 2>/dev/null || true &
+        else
+            srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "pkill -9 python" 2>/dev/null || true &
+        fi
     done
     wait
     sleep 1
@@ -241,13 +259,16 @@ for run_num in 1 2 3; do
     fi
 
     # Launch one worker per GPU across all nodes
+    # For NCCL: use ssh (sequential, rank 0 binds listener first, then others connect)
+    # For gloo: use srun (native SLURM integration)
     global_rank=0
     for ((node_idx=0; node_idx<NUM_NODES; node_idx++)); do
         node="${NODE_ARR[$node_idx]}"
         for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
             echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
-            # Use --ntasks=1 to launch exactly one task per worker
-            srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "
+            
+            # Build the worker command (same for both ssh and srun)
+            worker_cmd="
                 module unload boost 2>/dev/null || true
                 module load boost/gcc/11.3.0
                 export CUDA_VISIBLE_DEVICES=$local_gpu
@@ -268,7 +289,17 @@ for run_num in 1 2 3; do
                     --warmup-iters $WARMUP_ITERS \
                     --measure-iters $MEASURE_ITERS \
                     --sparsity-type elementwise
-            " > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+            "
+            
+            if [[ "$BACKEND" == "nccl" ]]; then
+                # For NCCL: use ssh for sequential launching (rank 0 binds listener first)
+                ssh "$node" bash -c "$worker_cmd" > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+            else
+                # For gloo: use srun for SLURM integration
+                srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
+                    > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+            fi
+            
             global_rank=$(( global_rank + 1 ))
         done
     done
