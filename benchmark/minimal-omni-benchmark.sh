@@ -252,6 +252,7 @@ for run_num in 1 2 3; do
                 module load boost/gcc/11.3.0
                 export CUDA_VISIBLE_DEVICES=$local_gpu
                 export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
+                [[ -n '$GLOO_SOCKET_IFNAME' ]] && export NCCL_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
                 export PYTHONUNBUFFERED=1
                 export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
                 export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
@@ -266,8 +267,7 @@ for run_num in 1 2 3; do
                     --ip $COORD_IP \
                     --warmup-iters $WARMUP_ITERS \
                     --measure-iters $MEASURE_ITERS \
-                    --sparsity-type elementwise \
-                    $(if [[ -n \"$GLOO_SOCKET_IFNAME\" ]]; then echo \"--nccl-socket-ifname $GLOO_SOCKET_IFNAME\"; fi)
+                    --sparsity-type elementwise
             " > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
             global_rank=$(( global_rank + 1 ))
         done
