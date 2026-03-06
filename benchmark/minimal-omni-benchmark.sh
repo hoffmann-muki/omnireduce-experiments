@@ -87,7 +87,15 @@ TOTAL_WORKERS=$(( NUM_NODES * GPUS_PER_NODE ))
 
 # ── Auto-detect fabric interface if not already set ───────────────────────────
 if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
-    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
+    # Prioritize InfiniBand (ib0, ib1, etc.)
+    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -oE 'ib[0-9]+' | head -1)
+    
+    # Fallback to other interfaces
+    if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+        GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
+    fi
+    
+    # Final fallback to common interface names
     if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
         for iface in eth0 eno1 en0 hsn0 wlan0; do
             if ip addr show "$iface" &>/dev/null; then
@@ -96,9 +104,12 @@ if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
             fi
         done
     fi
+    
+    # Last resort
     if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
         GLOO_SOCKET_IFNAME=lo
     fi
+    
     export GLOO_SOCKET_IFNAME
     echo "Auto-detected GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME"
 fi
