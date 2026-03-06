@@ -283,11 +283,11 @@ for run_num in 1 2 3; do
             # For NCCL: launch rank 0 first, wait for it to bind listener, then launch others
             # For gloo: launch all concurrently (OmniReduce aggregators handle coordination)
             if [[ "$BACKEND" == "nccl" && $global_rank -eq 0 ]]; then
-                # Rank 0: block until it establishes the socket listener
-                echo "    [NCCL rank 0] Launching and waiting for socket listener..."
+                # Rank 0: launch in background, then sleep to let it bind the TCP listener
+                echo "    [NCCL rank 0] Launching with head start for socket listener..."
                 srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
-                    > "${RUN_DIR}/worker_${global_rank}.log" 2>&1
-                sleep 1  # Give rank 0 time to bind listener
+                    > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+                sleep 5  # Give rank 0 time to start Python and bind the TCP store
             else
                 # All other ranks (or all ranks for gloo): launch concurrently in background
                 srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
