@@ -85,10 +85,27 @@ fi
 
 TOTAL_WORKERS=$(( NUM_NODES * GPUS_PER_NODE ))
 
+# ── Auto-detect fabric interface if not already set ───────────────────────────
+if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+    GLOO_SOCKET_IFNAME=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $2; exit}')
+    if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+        for iface in eth0 eno1 en0 hsn0 wlan0; do
+            if ip addr show "$iface" &>/dev/null; then
+                GLOO_SOCKET_IFNAME=$iface
+                break
+            fi
+        done
+    fi
+    if [[ -z "$GLOO_SOCKET_IFNAME" ]]; then
+        GLOO_SOCKET_IFNAME=lo
+    fi
+    export GLOO_SOCKET_IFNAME
+    echo "Auto-detected GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME"
+fi
+
 # ── Collect interface IPs from all nodes for both backends ──────────
-echo "Collecting IPs from all nodes on interface: ${GLOO_SOCKET_IFNAME:-auto-detected}..."
-# Use the detected fabric interface; if none found, try ib0 (InfiniBand default)
-FABRIC_IF=${GLOO_SOCKET_IFNAME:-ib0}
+echo "Collecting IPs from all nodes on interface: $GLOO_SOCKET_IFNAME..."
+FABRIC_IF=$GLOO_SOCKET_IFNAME
 declare -a NODE_IPS
 declare -a WORKER_IP_LIST
 for node in "${NODE_ARR[@]}"; do
@@ -250,11 +267,11 @@ for run_num in 1 2 3; do
             module unload boost 2>/dev/null || true
             module load boost/gcc/11.3.0
             export CUDA_VISIBLE_DEVICES=$2
-            export GLOO_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
-            [[ -n '$GLOO_SOCKET_IFNAME' ]] && export NCCL_SOCKET_IFNAME=$GLOO_SOCKET_IFNAME
+            export GLOO_SOCKET_IFNAME=${FABRIC_IF}
+            export NCCL_SOCKET_IFNAME=${FABRIC_IF}
             # For NCCL: allow extra time for initialization and handle errors gracefully
             export NCCL_INIT_TIMEOUT=300
-            export NCCL_ASYNC_ERROR_HANDLING=1
+            export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
             export PYTHONUNBUFFERED=1
             export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
             export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
