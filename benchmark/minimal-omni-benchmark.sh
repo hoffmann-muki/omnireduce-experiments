@@ -175,8 +175,8 @@ message_size = 256
 block_size = 256
 ib_hca = mlx5_0
 ib_port = 1
-gid_idx = 2
-sl = 2
+gid_idx = 0
+sl = 0
 gpu_devId = 0
 direct_memory = 1
 adaptive_blocksize = 0
@@ -282,7 +282,8 @@ for run_num in 1 2 3; do
     # Enable InfiniBand with RoCE tuning.
     # GID Index 0 is the only available index on Zaratan cluster.
     export NCCL_IB_DISABLE=0
-    export NCCL_IB_GID_INDEX=0        # Use the only available GID index
+    export NCCL_IB_GID_INDEX=0        # Only available GID index on Zaratan
+    export NCCL_IB_AR_DISABLE=1       # Disable Adaptive Routing (not supported by RoCE v1)
     export NCCL_IB_RETRY_CNT=7
     export NCCL_IB_TIMEOUT=22
     export NCCL_P2P_DISABLE=0         # Re-enable P2P for intra-node speeds
