@@ -277,6 +277,16 @@ for run_num in 1 2 3; do
     export NCCL_INIT_TIMEOUT=120
     export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
     export PYTHONUNBUFFERED=1
+    
+    # --- NCCL Network & Debug Flags ---
+    # Enable debug output to see NCCL initialization and network issues
+    export NCCL_DEBUG=INFO
+    export NCCL_DEBUG_SUBSYS=INIT,NET
+    
+    # Explicitly use Mellanox InfiniBand hardware (mlx5) with socket interface
+    export NCCL_IB_DISABLE=0
+    export NCCL_IB_HCA=mlx5
+    # -----------------------------------
 
     # Use --input=none to prevent backgrounded srun from hanging on stdin
     srun --input=none --ntasks=${TOTAL_WORKERS} --ntasks-per-node=${GPUS_PER_NODE} --overlap bash -c "
