@@ -268,77 +268,67 @@ for run_num in 1 2 3; do
         start_aggregators
     fi
 
-    # Launch workers
-    if [[ "$BACKEND" == "nccl" ]]; then
-        # Single srun step: SLURM launches all tasks simultaneously across all allocated nodes.
-        # SLURM_PROCID = global rank (0..TOTAL_WORKERS-1), used as --rank
-        # SLURM_LOCALID = local GPU index (0..GPUS_PER_NODE-1), used for CUDA_VISIBLE_DEVICES
-        # --output/--error write per-task logs as worker_0.log .. worker_N.log
-        echo "  Launching all $TOTAL_WORKERS NCCL workers in one srun step..."
-        srun --overlap \
-            --ntasks=$TOTAL_WORKERS \
-            --ntasks-per-node=$GPUS_PER_NODE \
-            --output="${RUN_DIR}/worker_%t.log" \
-            --error="${RUN_DIR}/worker_%t.log" \
-            bash -c "
-                module unload boost 2>/dev/null || true
-                module load boost/gcc/11.3.0
-                export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID
-                export GLOO_SOCKET_IFNAME=${FABRIC_IF}
-                export NCCL_SOCKET_IFNAME=${FABRIC_IF}
-                export NCCL_INIT_TIMEOUT=300
-                export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-                export PYTHONUNBUFFERED=1
-                export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
-                export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
-                cd $SCRIPT_DIR
-                $CONDA_PYTHON -u benchmark.py \\
-                    --backend nccl \\
-                    --tensor-size $TENSOR_SIZE \\
-                    --block-size $BLOCK_SIZE \\
-                    --density $DENSITY \\
-                    --rank \$SLURM_PROCID \\
-                    --size $TOTAL_WORKERS \\
-                    --ip $COORD_IP \\
-                    --warmup-iters $WARMUP_ITERS \\
-                    --measure-iters $MEASURE_ITERS \\
-                    --sparsity-type elementwise
-            "
-    else
-        # gloo: per-rank srun (each rank needs a different --rank arg for OmniReduce)
-        global_rank=0
-        for ((node_idx=0; node_idx<NUM_NODES; node_idx++)); do
-            node="${NODE_ARR[$node_idx]}"
-            for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
-                echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
-                worker_cmd="
-                    module unload boost 2>/dev/null || true
-                    module load boost/gcc/11.3.0
-                    export CUDA_VISIBLE_DEVICES=$local_gpu
-                    export GLOO_SOCKET_IFNAME=${FABRIC_IF}
-                    export PYTHONUNBUFFERED=1
-                    export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
-                    export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
-                    cd $SCRIPT_DIR
-                    $CONDA_PYTHON -u benchmark.py \\
-                        --backend gloo \\
-                        --tensor-size $TENSOR_SIZE \\
-                        --block-size $BLOCK_SIZE \\
-                        --density $DENSITY \\
-                        --rank $global_rank \\
-                        --size $TOTAL_WORKERS \\
-                        --ip $COORD_IP \\
-                        --warmup-iters $WARMUP_ITERS \\
-                        --measure-iters $MEASURE_ITERS \\
-                        --sparsity-type elementwise
-                "
+    # Launch one worker per GPU across all nodes
+    global_rank=0
+    
+    # Build the worker command (same for both backends)
+    build_worker_cmd() {
+        local rank=$1
+        echo "
+            module unload boost 2>/dev/null || true
+            module load boost/gcc/11.3.0
+            export CUDA_VISIBLE_DEVICES=$2
+            export GLOO_SOCKET_IFNAME=${FABRIC_IF}
+            export NCCL_SOCKET_IFNAME=${FABRIC_IF}
+            # For NCCL: allow extra time for initialization and handle errors gracefully
+            export NCCL_INIT_TIMEOUT=120
+            export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+            export PYTHONUNBUFFERED=1
+            export GCC_LIBDIR=\$(dirname \$(gcc -print-file-name=libstdc++.so))
+            export LD_LIBRARY_PATH=\$GCC_LIBDIR:${OMNIREDUCE_BUILD}:/lib64:/usr/lib64:\$LD_LIBRARY_PATH
+            cd $SCRIPT_DIR
+            $CONDA_PYTHON -u benchmark.py \
+                --backend $BACKEND \
+                --tensor-size $TENSOR_SIZE \
+                --block-size $BLOCK_SIZE \
+                --density $DENSITY \
+                --rank $rank \
+                --size $TOTAL_WORKERS \
+                --ip $COORD_IP \
+                --warmup-iters $WARMUP_ITERS \
+                --measure-iters $MEASURE_ITERS \
+                --sparsity-type elementwise
+        "
+    }
+    
+    for ((node_idx=0; node_idx<NUM_NODES; node_idx++)); do
+        node="${NODE_ARR[$node_idx]}"
+        for ((local_gpu=0; local_gpu<GPUS_PER_NODE; local_gpu++)); do
+            echo "  worker rank=$global_rank  node=$node  gpu=$local_gpu"
+            
+            worker_cmd=$(build_worker_cmd $global_rank $local_gpu)
+            
+            # For NCCL: launch rank 0 first, wait for it to bind listener, then launch others
+            # For gloo: launch all concurrently (OmniReduce aggregators handle coordination)
+            if [[ "$BACKEND" == "nccl" && $global_rank -eq 0 ]]; then
+                # Rank 0: launch in background, then sleep to let it bind the TCP listener
+                echo "    [NCCL rank 0] Launching with head start for socket listener..."
                 srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
                     > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
-                global_rank=$(( global_rank + 1 ))
-            done
+                sleep 5  # Give rank 0 time to start Python and bind the TCP store
+            else
+                # All other ranks (or all ranks for gloo): launch concurrently in background
+                srun --overlap --ntasks=1 --nodes=1 --nodelist="$node" bash -c "$worker_cmd" \
+                    > "${RUN_DIR}/worker_${global_rank}.log" 2>&1 &
+            fi
+            
+            global_rank=$(( global_rank + 1 ))
         done
-        echo "  Waiting for all workers..."
-        wait
+    done
+
+    echo "  Waiting for all workers..."
+    wait
+    if [[ "$BACKEND" == "gloo" ]]; then
         stop_aggregators
     fi
     echo "  Run $run_num complete."
