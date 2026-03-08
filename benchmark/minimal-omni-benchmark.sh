@@ -278,11 +278,16 @@ for run_num in 1 2 3; do
     export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
     export PYTHONUNBUFFERED=1
     
-    # --- Safe Debug Config (TCP Fallback Test) ---
-    # Start with IB/P2P disabled to isolate hardware issues.
-    # If this works, the problem is RDMA/RoCE tuning, not the code.
-    export NCCL_IB_DISABLE=1
-    export NCCL_P2P_DISABLE=1
+    # --- NCCL RoCE Configuration using Available GID Index ---
+    # Enable InfiniBand with RoCE tuning.
+    # GID Index 0 is the only available index on Zaratan cluster.
+    export NCCL_IB_DISABLE=0
+    export NCCL_IB_GID_INDEX=0        # Use the only available GID index
+    export NCCL_IB_RETRY_CNT=7
+    export NCCL_IB_TIMEOUT=22
+    export NCCL_P2P_DISABLE=0         # Re-enable P2P for intra-node speeds
+    
+    # Keep socket interface and debug flags
     export NCCL_SOCKET_IFNAME=ib0
     export NCCL_DEBUG=INFO
     export NCCL_DEBUG_SUBSYS=INIT,NET
