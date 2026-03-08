@@ -278,15 +278,15 @@ for run_num in 1 2 3; do
     export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
     export PYTHONUNBUFFERED=1
     
-    # --- NCCL Network & Debug Flags ---
-    # Enable debug output to see NCCL initialization and network issues
+    # --- Safe Debug Config (TCP Fallback Test) ---
+    # Start with IB/P2P disabled to isolate hardware issues.
+    # If this works, the problem is RDMA/RoCE tuning, not the code.
+    export NCCL_IB_DISABLE=1
+    export NCCL_P2P_DISABLE=1
+    export NCCL_SOCKET_IFNAME=ib0
     export NCCL_DEBUG=INFO
     export NCCL_DEBUG_SUBSYS=INIT,NET
-    
-    # Explicitly use Mellanox InfiniBand hardware (mlx5) with socket interface
-    export NCCL_IB_DISABLE=0
-    export NCCL_IB_HCA=mlx5
-    # -----------------------------------
+    # -----------------------------------------------
 
     # Use --input=none to prevent backgrounded srun from hanging on stdin
     srun --input=none --ntasks=${TOTAL_WORKERS} --ntasks-per-node=${GPUS_PER_NODE} --overlap bash -c "
