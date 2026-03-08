@@ -76,9 +76,9 @@ def get_expected_result(worldsize, tensorsize, blocksize, density, allreduce_tim
     return data
 
 def benchmark(rank, world_size, tensorsize, blocksize, density, check, warmup_iters=10, measure_iters=100, sparsity_type='blockwise'):
-    # Determine local rank (GPU index on this node)
-    # First try SLURM_LOCALID, fall back to 0
-    local_rank = int(os.environ.get('SLURM_LOCALID', '0'))
+    # CUDA_VISIBLE_DEVICES is set to a single GPU by the srun command via $SLURM_LOCALID,
+    # so from CUDA's perspective this process always sees device 0.
+    local_rank = 0
     torch.cuda.set_device(local_rank)
     mydevice = torch.device("cuda", local_rank)
     begin = time.time()
