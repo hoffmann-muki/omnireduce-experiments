@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <chrono>
 #include <cuda_runtime.h>
 #include <nccl.h>
 #include <mpi.h>
@@ -41,7 +42,7 @@ int main(int argc, char* argv[]) {
   ncclUniqueId id;
   ncclComm_t comm;
   float *sendbuff, *recvbuff;
-  size_t nElems = 1048576;
+  size_t nElems = 67108864;  // 256 MiB / 4 bytes per float
 
   if (rank == 0) ncclGetUniqueId(&id);
   MPICHECK(MPI_Bcast((void *)&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD));
@@ -54,10 +55,24 @@ int main(int argc, char* argv[]) {
 
   cudaStream_t stream;
   CUDACHECK(cudaStreamCreate(&stream));
+
+  // Warmup iteration
   NCCLCHECK(ncclAllReduce((const void*)sendbuff, (void*)recvbuff, nElems, ncclFloat, ncclSum, comm, stream));
   CUDACHECK(cudaStreamSynchronize(stream));
 
-  std::cout << "Rank " << rank << " OK" << std::endl;
+  // Measure 10 iterations
+  const int num_iters = 10;
+  auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < num_iters; i++) {
+    NCCLCHECK(ncclAllReduce((const void*)sendbuff, (void*)recvbuff, nElems, ncclFloat, ncclSum, comm, stream));
+  }
+  CUDACHECK(cudaStreamSynchronize(stream));
+  auto end = std::chrono::high_resolution_clock::now();
+
+  double total_ms = std::chrono::duration<double, std::milli>(end - start).count();
+  double latency_ms = total_ms / num_iters;
+
+  printf("Rank %d: %.3f ms per allreduce (256 MiB, %d ranks)\n", rank, latency_ms, size);
 
   // Cleanup
   NCCLCHECK(ncclCommDestroy(comm));
