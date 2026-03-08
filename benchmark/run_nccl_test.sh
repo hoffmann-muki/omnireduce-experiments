@@ -2,6 +2,8 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+module load gcc/11.3.0 cuda/12.3.0/gcc/11.3.0/icelake nccl/2.18.1-1/gcc/11.3.0/icelake openmpi/4.1.5 2>/dev/null || true
+
 [[ -f "$SCRIPT_DIR/nccl_test" ]] || { echo "ERROR: nccl_test not found. Run: bash build_nccl_test.sh"; exit 1; }
 [[ -n "$SLURM_NODELIST" ]] || { echo "ERROR: Not in SLURM allocation. Try: salloc --nodes=2 --gpus-per-node=4 --time=00:30:00 bash"; exit 1; }
 
